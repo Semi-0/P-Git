@@ -6,17 +6,18 @@ module Main (main) where
 
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
-import System.IO (IOMode (WriteMode), hPutStrLn, withFile)
-
+import System.IO (IOMode (WriteMode), hPutStrLn, withFile, writeFile)
+import Crypto.Hash (hashlazy, Digest, SHA1)
 import Control.Exception (IOException, try)
 import Control.Monad (void)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment
 import System.FilePath ((</>))
-import System.IO (IOMode (WriteMode), hPutStrLn, withFile)
-import Codec.Compression.Zlib (decompress)
+
+import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy  as BL
+import qualified Data.ByteString as B
 import System.Directory (doesFileExist)
 import Data.ByteString.Char8 (pack, unpack)
 
@@ -49,6 +50,15 @@ catFile parameters shardName
     | otherwise = putStrLn "Unknown Parameters for CatFile"
 
 
+hashObject :: FilePath -> IO()
+hashObject filePath = do
+    content <- BL.readFile filePath
+    let sha = hashlazy content :: Digest SHA1
+    B.writeFile (appendPath $ show sha) (BL.toStrict $ compress content)
+    putStrLn $ show sha
+
+
+
 initGitFile :: IO()
 initGitFile = do 
     let createParents = True
@@ -61,5 +71,6 @@ initGitFile = do
 parseArgs :: [String] -> IO() 
 parseArgs ["init"] = initGitFile
 parseArgs ["cat-file", parameters, blob_sha] = catFile parameters blob_sha
+parseArgs ["hash-object", parameters, filePath] = hashObject filePath
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
