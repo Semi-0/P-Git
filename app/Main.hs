@@ -14,9 +14,9 @@ main = do
     putStrLn "Logs from your program will appear here"
 
     -- Uncomment this block to pass first stage
-    -- let createParents = True
-    -- createDirectoryIfMissing createParents ".git"
-    -- createDirectoryIfMissing createParents (".git" </> "objects")
-    -- createDirectoryIfMissing createParents (".git" </> "refs")
-    -- withFile (".git" </> "HEAD") WriteMode $ \f -> hPutStrLn f "ref: refs/heads/master"
-    -- putStrLn $ "Initialized git directory"
+    let createParents = True
+    createDirectoryIfMissing createParents ".git"
+    createDirectoryIfMissing createParents (".git" </> "objects")
+    createDirectoryIfMissing createParents (".git" </> "refs")
+    withFile (".git" </> "HEAD") WriteMode $ \f -> hPutStrLn f "ref: refs/heads/master"
+    putStrLn $ "Initialized git directory"
