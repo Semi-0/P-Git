@@ -17,6 +17,9 @@ import System.IO (IOMode (WriteMode), hPutStrLn, withFile)
 import Codec.Compression.Zlib (decompress)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy  as BL
+import System.Directory (doesFileExist)
+import Data.ByteString.Char8 (pack, unpack)
+
 
 main :: IO ()
 main = getArgs >>= parseArgs
@@ -24,24 +27,26 @@ main = getArgs >>= parseArgs
 dropUnrelevant :: ByteString -> ByteString
 dropUnrelevant = BL.drop 8
 
-doCatFile :: String -> ByteString
+doCatFile :: String -> IO()
 doCatFile blob_sha = do 
-                        file_content <- BL.readFile . appendPath . blob_sha
-                        dropUnrelevant $ decompress file_content
+                        let filePath = appendPath blob_sha
+                        fileExists <- doesFileExist filePath
+                        if fileExists
+                            then do 
+                                file_content <- BL.readFile filePath
+                                BL.putStr $ dropUnrelevant $ decompress file_content
+                            else putStrLn $ "File does not exist"
                        
 
 appendPath :: String -> String 
-appendPath filename = ".git" </> "objects" </> filename
+appendPath filename = ".git" </> "objects" </> dir </> file
+                    where (dir, file) = splitAt 2 filename
 
 
-CatFile :: String -> String -> IO() 
-CatFile parameters shardName 
-    | parameters == "-p" = do
-        fileExists <- doesFileExist (appendPath shardName)
-        if fileExists
-            then putStrLn . doCatFile shardName
-            else putStrLn "File does not exist"
-    | otherWise = putStrLn "Unknown Parameters for CatFile"
+catFile :: String -> String -> IO() 
+catFile parameters shardName 
+    | parameters == "-p" = doCatFile shardName
+    | otherwise = putStrLn "Unknown Parameters for CatFile"
 
 
 initGitFile :: IO()
@@ -55,6 +60,6 @@ initGitFile = do
 
 parseArgs :: [String] -> IO() 
 parseArgs ["init"] = initGitFile
-parseArgs ["cat-file", parameters, blob_sha] = CatFile parameters blob_sha
-parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show args)
+parseArgs ["cat-file", parameters, blob_sha] = catFile parameters blob_sha
+parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
