@@ -56,12 +56,20 @@ addHeader content = BL.append header content
   where
     header = C8.pack $ "blob " ++ show (BL.length content) ++ "\0"
 
+writeObjectFile :: FilePath -> BL.ByteString -> IO ()
+writeObjectFile filePath content = do
+    let sha = hashlazy content :: Digest SHA1
+        (dirName, name) = splitAt 2 $ show sha
+        dir = ".git" </> "objects" </> dirName
+    createDirectoryIfMissing True dir
+    B.writeFile (dir </> name) (BL.toStrict $ compress content)
+    putStrLn $ show sha
+
+
 hashObject :: FilePath -> IO()
 hashObject filePath = do
     content <- addHeader <$> BL.readFile filePath
-    let sha = hashlazy content :: Digest SHA1
-    B.writeFile (appendPath $ show sha) (BL.toStrict $ compress content)
-    putStrLn $ show sha
+    writeObjectFile filePath content
 
 
 
