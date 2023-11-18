@@ -20,7 +20,7 @@ import qualified Data.ByteString.Lazy  as BL
 import qualified Data.ByteString as B
 import System.Directory (doesFileExist)
 import Data.ByteString.Char8 (pack, unpack)
-
+import qualified Data.ByteString.Lazy.Char8 as C8
 
 main :: IO ()
 main = getArgs >>= parseArgs
@@ -50,9 +50,15 @@ catFile parameters shardName
     | otherwise = putStrLn "Unknown Parameters for CatFile"
 
 
+
+addHeader :: BL.ByteString -> BL.ByteString
+addHeader content = BL.append header content
+  where
+    header = C8.pack $ "blob " ++ show (BL.length content) ++ "\0"
+
 hashObject :: FilePath -> IO()
 hashObject filePath = do
-    content <- BL.readFile filePath
+    content <- addHeader <$> BL.readFile filePath
     let sha = hashlazy content :: Digest SHA1
     B.writeFile (appendPath $ show sha) (BL.toStrict $ compress content)
     putStrLn $ show sha
