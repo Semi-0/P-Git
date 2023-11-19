@@ -38,7 +38,7 @@ readObject blob_sha = do
                         if fileExists
                             then do 
                                 file_content <- BL.readFile filePath
-                                return $ dropUnrelevant $ decompress file_content
+                                return $ decompress file_content
                             else return $ "File does not exist"
                        
 
@@ -51,7 +51,7 @@ catFile :: String -> String -> IO()
 catFile parameters shardName 
     | parameters == "-p" = do
         content <- readObject shardName
-        BL.putStr content
+        BL.putStr $ dropUnrelevant content
         return ()
     | otherwise = putStrLn "Unknown Parameters for CatFile"
 
