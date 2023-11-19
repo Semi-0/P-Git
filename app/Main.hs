@@ -113,7 +113,7 @@ isFile :: TreeEntry -> Bool
 isFile entry = mode entry == "100644"
 
 isDirectory :: TreeEntry -> Bool
-isDirectory entry = mode entry == "040000"
+isDirectory entry = mode entry == "40000"
 
 charToWord8 :: Char -> Word8
 charToWord8 c = fromIntegral (ord c)
