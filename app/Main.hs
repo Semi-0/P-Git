@@ -103,7 +103,7 @@ displayEntity nameOnly pred (TreeObject entries) =
 
 printEntry :: Bool -> TreeEntry -> IO()
 printEntry nameOnly entry = 
-    if nameOnly then putStrLn (show (name entry))
+    if nameOnly then putStrLn $ C8.unpack (name entry) 
                 else print entry                                  
 
 data TreeEntry = TreeEntry {mode :: BL.ByteString, name :: BL.ByteString, sha ::  BL.ByteString} deriving (Show, Eq)
