@@ -13,6 +13,7 @@ import Control.Monad (void)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment
 import System.FilePath ((</>))
+import System.FilePath (takeDirectory)
 
 import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
@@ -65,10 +66,9 @@ addHeader content = BL.append header content
 writeObjectFile :: FilePath -> BL.ByteString -> IO ()
 writeObjectFile filePath content = do
     let sha = hashlazy content :: Digest SHA1
-        (dirName, name) = splitAt 2 $ show sha
-        dir = ".git" </> "objects" </> dirName
-    createDirectoryIfMissing True dir
-    B.writeFile (dir </> name) (BL.toStrict $ compress content)
+        fileDir = appendPath (show sha)
+    createDirectoryIfMissing True (takeDirectory fileDir)
+    B.writeFile fileDir (BL.toStrict $ compress content)
     putStrLn $ show sha
 
 
