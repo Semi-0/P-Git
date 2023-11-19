@@ -30,6 +30,7 @@ dependencies:
 - attoparsec
 # testing
 - HUnit
+- parsec
 
 executables:
   hs-git-clone-exe:
