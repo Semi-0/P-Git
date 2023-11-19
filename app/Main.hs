@@ -65,9 +65,10 @@ addHeader content = BL.append header content
 writeObjectFile :: FilePath -> BL.ByteString -> IO ()
 writeObjectFile filePath content = do
     let sha = hashlazy content :: Digest SHA1
-        dir = appendPath (show sha)
+        (dirName, name) = splitAt 2 $ show sha
+        dir = ".git" </> "objects" </> dirName
     createDirectoryIfMissing True dir
-    B.writeFile dir (BL.toStrict $ compress content)
+    B.writeFile (dir </> name) (BL.toStrict $ compress content)
     putStrLn $ show sha
 
 
