@@ -43,8 +43,8 @@ readObject blob_sha = do
                        
 
 appendPath :: String -> String 
-appendPath filename = ".git" </> "objects" </> dir </> file
-                    where (dir, file) = splitAt 2 filename
+appendPath sha = ".git" </> "objects" </> dir </> file
+                    where (dir, file) = splitAt 2 sha
 
 
 catFile :: String -> String -> IO() 
@@ -65,10 +65,9 @@ addHeader content = BL.append header content
 writeObjectFile :: FilePath -> BL.ByteString -> IO ()
 writeObjectFile filePath content = do
     let sha = hashlazy content :: Digest SHA1
-        (dirName, name) = splitAt 2 $ show sha
-        dir = ".git" </> "objects" </> dirName
+        dir = appendPath (show sha)
     createDirectoryIfMissing True dir
-    B.writeFile (dir </> name) (BL.toStrict $ compress content)
+    B.writeFile dir (BL.toStrict $ compress content)
     putStrLn $ show sha
 
 
@@ -89,13 +88,13 @@ initGitFile = do
     putStrLn $ "Initialized git directory"
 
 -- Tree
+
 lsTree :: Bool -> String -> IO()
 lsTree nameOnly tree_sha = do 
                     treeObject <- readObject tree_sha
                     case parse parseTreeObject "" (unpack (BL.toStrict treeObject)) of
                         Left err -> putStrLn $ "Error parsing tree object: " ++ show err
                         Right tree -> displayEntity nameOnly (\entry -> isFile entry || isDirectory entry) tree
-
 
 displayEntity :: Bool -> (TreeEntry -> Bool) -> TreeObject -> IO() 
 displayEntity nameOnly pred (TreeObject entries) = 
@@ -110,16 +109,11 @@ data TreeEntry = TreeEntry {mode :: BL.ByteString, name :: BL.ByteString, sha ::
 data TreeObject = TreeObject [TreeEntry]
 
 isFile :: TreeEntry -> Bool
-isFile entry = mode entry == "100644"
+isFile = (== "100644") . mode
 
 isDirectory :: TreeEntry -> Bool
-isDirectory entry = mode entry == "40000"
+isDirectory = (== "40000") . mode
 
-charToWord8 :: Char -> Word8
-charToWord8 c = fromIntegral (ord c)
-
-c2w :: Char -> Word8
-c2w = fromIntegral . ord
 
 parseTreeObject :: Parser TreeObject
 parseTreeObject = do 
@@ -153,3 +147,10 @@ parseArgs ["ls-tree", parameters, tree_sha]
         | otherwise = lsTree False tree_sha
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
+-- helper
+
+charToWord8 :: Char -> Word8
+charToWord8 c = fromIntegral (ord c)
+
+c2w :: Char -> Word8
+c2w = fromIntegral . ord
