@@ -71,13 +71,6 @@ readObject blob_sha = do
 
 
 
--- writeObjectFile ::  ByteString -> IO (Digest SHA1)
--- writeObjectFile  content = do
---     let sha = hashlazy content :: Digest SHA1
---         fileDir = appendPath (show sha)
---     createDirectoryIfMissing True (takeDirectory fileDir)
---     B.writeFile fileDir (BL.toStrict $ compress content)
---     return sha
 
 writeObjectFile ::  ByteString -> IO (Either IOException (Digest SHA1))
 writeObjectFile  content = do
@@ -214,6 +207,8 @@ addHeaderForTreeObject :: TreeObject -> ByteString
 addHeaderForTreeObject treeObject = BL.append header (toByteStringRaw treeObject)
     where header = C8.pack $ "tree " ++ show (calculateContentSize treeObject) ++ "\0"
 
+
+
 getTreeSha :: TreeObject -> Digest SHA1
 getTreeSha treeObject = hashlazy $ addHeaderForTreeObject treeObject
 
@@ -253,13 +248,19 @@ fetchFileEntities filePaths = do
 gitignore :: [FilePath]
 gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
 
+toEntity :: FilePath -> IO TreeEntry
+toEntity filePath = do
+    isDirectory <- isDir filePath
+    if isDirectory
+        then createDirectoryEntityFromPath filePath
+        else createFileEntityFromPath filePath >>= either (error . show) return
+
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
     let processedFilePath = sort $ filter (`notElem` gitignore) filePaths
-    fileEntitys <- fetchFileEntities processedFilePath
-    directoryEntitys <- fetchDirectoryEntities processedFilePath
-    let treeObject = TreeObject (fileEntitys ++ directoryEntitys)
+    treeEntries <- mapM toEntity processedFilePath
+    let treeObject = TreeObject treeEntries
     let content = addHeaderForTreeObject treeObject
     writeObjectFile content
     return treeObject
