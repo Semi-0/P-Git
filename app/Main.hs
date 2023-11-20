@@ -265,6 +265,9 @@ parseArgs ["hash-object", parameters, filePath] = hashObject filePath
 parseArgs ["ls-tree", parameters, tree_sha]
         | parameters == "--name-only" = lsTree True tree_sha
         | otherwise = lsTree False tree_sha
+
+parseArgs ["write-tree", root] = writeTree root
+parseArgs ["write-tree"] = writeTree "."        
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
 -- helper
