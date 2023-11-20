@@ -29,6 +29,7 @@ import Control.Monad.RWS (MonadState(put))
 import Data.Char (chr)
 import GHC.IO.Device (RawIO(write))
 import qualified Control.Exception as E
+import Data.List (sort)
 
 
 -- Init
@@ -231,6 +232,7 @@ createFileEntityFromPath filePath = do
     hash <- hashObjectInternal filePath
     traverse (createFileEntry filePath) hash
 
+
 createDirectoryEntityFromPath :: FilePath -> IO TreeEntry
 createDirectoryEntityFromPath filePath = do
     treeObject <- writeTreeInternal filePath
@@ -248,11 +250,15 @@ fetchFileEntities filePaths = do
     return fileEntitys
 
 
+gitignore :: [FilePath]
+gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
+
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
-    fileEntitys <- fetchFileEntities filePaths
-    directoryEntitys <- fetchDirectoryEntities filePaths
+    let processedFilePath = sort $ filter (`notElem` gitignore) filePaths
+    fileEntitys <- fetchFileEntities processedFilePath
+    directoryEntitys <- fetchDirectoryEntities processedFilePath
     let treeObject = TreeObject (fileEntitys ++ directoryEntitys)
     let content = addHeaderForTreeObject treeObject
     writeObjectFile content
