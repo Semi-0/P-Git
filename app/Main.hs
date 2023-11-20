@@ -241,7 +241,7 @@ createDirectoryEntityFromPath filePath = do
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
-    fileEntitysEithers <- mapM createFileEntityFromPath filePaths
+    fileEntitysEithers <- filterM isFile filePaths >>=  mapM createFileEntityFromPath
     let fileEntitys = map (either (error . show) id) fileEntitysEithers
     directoryEntitys <- filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
     let treeObject = TreeObject (fileEntitys ++ directoryEntitys)
