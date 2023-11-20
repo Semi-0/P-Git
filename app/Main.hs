@@ -4,12 +4,12 @@
 
 module Main (main) where
 
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, listDirectory, doesFileExist, doesDirectoryExist)
 import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hPutStrLn, withFile, writeFile)
 import Crypto.Hash (hashlazy, Digest, SHA1, digestFromByteString)
 import Control.Exception (IOException, try)
-import Control.Monad (void)
+import Control.Monad (void, filterM, unless)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment
 import System.FilePath ((</>))
@@ -19,41 +19,92 @@ import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy  as BL
 import qualified Data.ByteString as B
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, doesDirectoryExist)
 import Data.ByteString.Char8 (pack, unpack, split)
 import qualified Data.ByteString.Lazy.Char8 as C8
 import Data.Word (Word8)
 import Data.Char (ord)
 import Text.ParserCombinators.Parsec hiding (spaces)
+import Control.Monad.RWS (MonadState(put))
+import Data.Char (chr)
+import GHC.IO.Device (RawIO(write))
+import qualified Control.Exception as E
 
+
+-- Init
+
+
+initGitFile :: IO()
+initGitFile = do
+    let createParents = True
+    gitExists <- doesDirectoryExist ".git"
+    unless gitExists $ do
+        createDirectoryIfMissing createParents ".git"
+        createDirectoryIfMissing createParents (".git" </> "objects")
+        createDirectoryIfMissing createParents (".git" </> "refs")
+        headExists <- doesFileExist (".git" </> "HEAD")
+        unless headExists $ withFile (".git" </> "HEAD") WriteMode $ \f -> hPutStrLn f "ref: refs/heads/master"
+    putStrLn $ "Initialized git directory"
+
+-- Basic IO
+
+-- readObject :: String -> IO ByteString
+-- readObject blob_sha = do
+--                         let filePath = appendPath blob_sha
+--                         fileExists <- doesFileExist filePath
+--                         if fileExists
+--                             then do
+--                                 file_content <- BL.readFile filePath
+--                                 return $ decompress file_content
+--                             else return $ "File does not exist"
+
+readObject :: String -> IO (Either IOException ByteString)
+readObject blob_sha = do
+    let filePath = appendPath blob_sha
+    fileExists <- doesFileExist filePath
+    if fileExists
+        then E.try $ do
+            file_content <- BL.readFile filePath
+            return $ decompress file_content
+        else return $ Left $ userError "File does not exist"
+
+
+
+-- writeObjectFile ::  ByteString -> IO (Digest SHA1)
+-- writeObjectFile  content = do
+--     let sha = hashlazy content :: Digest SHA1
+--         fileDir = appendPath (show sha)
+--     createDirectoryIfMissing True (takeDirectory fileDir)
+--     B.writeFile fileDir (BL.toStrict $ compress content)
+--     return sha
+
+writeObjectFile ::  ByteString -> IO (Either IOException (Digest SHA1))
+writeObjectFile  content = do
+    let sha = hashlazy content :: Digest SHA1
+        fileDir = appendPath (show sha)
+    createDirectoryIfMissing True (takeDirectory fileDir)
+    E.try $ B.writeFile fileDir (BL.toStrict $ compress content) >> return sha
 
 -- CatFile
 
 dropUnrelevant :: ByteString -> ByteString
 dropUnrelevant = BL.drop 8
 
-readObject :: String -> IO ByteString
-readObject blob_sha = do 
-                        let filePath = appendPath blob_sha
-                        fileExists <- doesFileExist filePath
-                        if fileExists
-                            then do 
-                                file_content <- BL.readFile filePath
-                                return $ decompress file_content
-                            else return $ "File does not exist"
-                       
 
-appendPath :: String -> String 
+
+
+appendPath :: String -> String
 appendPath sha = ".git" </> "objects" </> dir </> file
                     where (dir, file) = splitAt 2 sha
 
 
-catFile :: String -> String -> IO() 
-catFile parameters shardName 
+catFile :: String -> String -> IO()
+catFile parameters shardName
     | parameters == "-p" = do
-        content <- readObject shardName
-        BL.putStr $ dropUnrelevant content
-        return ()
+        result <- readObject shardName
+        case result of
+            Right content -> BL.putStr $ dropUnrelevant content
+            Left e -> putStrLn $ "Error: " ++ show e
     | otherwise = putStrLn "Unknown Parameters for CatFile"
 
 -- HashObject
@@ -63,66 +114,65 @@ addHeader content = BL.append header content
   where
     header = C8.pack $ "blob " ++ show (BL.length content) ++ "\0"
 
-writeObjectFile :: FilePath -> BL.ByteString -> IO ()
-writeObjectFile filePath content = do
-    let sha = hashlazy content :: Digest SHA1
-        fileDir = appendPath (show sha)
-    createDirectoryIfMissing True (takeDirectory fileDir)
-    B.writeFile fileDir (BL.toStrict $ compress content)
-    putStrLn $ show sha
+
+
+hashObjectInternal :: FilePath ->  IO (Either IOException (Digest SHA1))
+hashObjectInternal filePath = do
+    content <- addHeader <$> BL.readFile filePath
+    writeObjectFile content
 
 
 hashObject :: FilePath -> IO()
-hashObject filePath = do
-    content <- addHeader <$> BL.readFile filePath
-    writeObjectFile filePath content
+hashObject filePath = hashObjectInternal filePath >>= print
 
--- Init
 
-initGitFile :: IO()
-initGitFile = do 
-    let createParents = True
-    createDirectoryIfMissing createParents ".git"
-    createDirectoryIfMissing createParents (".git" </> "objects")
-    createDirectoryIfMissing createParents (".git" </> "refs")
-    withFile (".git" </> "HEAD") WriteMode $ \f -> hPutStrLn f "ref: refs/heads/master"
-    putStrLn $ "Initialized git directory"
+
+
+
 
 -- Tree
 
 lsTree :: Bool -> String -> IO()
-lsTree nameOnly tree_sha = do 
-                    treeObject <- readObject tree_sha
-                    case parse parseTreeObject "" (unpack (BL.toStrict treeObject)) of
-                        Left err -> putStrLn $ "Error parsing tree object: " ++ show err
-                        Right tree -> displayEntity nameOnly (\entry -> isFile entry || isDirectory entry) tree
+lsTree nameOnly tree_sha = do
+        treeObject <- readObject tree_sha
+        case treeObject of
+            Left err -> putStrLn $ "Error reading tree object: " ++ show err
+            Right tree ->
+                case parse parseTreeObject "" (unpack (BL.toStrict tree)) of
+                    Left err -> putStrLn $ "Error parsing tree object: " ++ show err
+                    Right tree -> displayEntity nameOnly (\entry -> entityIsFile entry || entityIsDirectory entry) tree
 
-displayEntity :: Bool -> (TreeEntry -> Bool) -> TreeObject -> IO() 
-displayEntity nameOnly pred (TreeObject entries) = 
+displayEntity :: Bool -> (TreeEntry -> Bool) -> TreeObject -> IO()
+displayEntity nameOnly pred (TreeObject entries) =
         mapM_ (printEntry nameOnly) (filter pred entries)
 
 printEntry :: Bool -> TreeEntry -> IO()
-printEntry nameOnly entry = 
-    if nameOnly then putStrLn $ C8.unpack (name entry) 
-                else print entry                                  
+printEntry nameOnly entry =
+    if nameOnly then putStrLn $ C8.unpack (name entry)
+                else print entry
 
 data TreeEntry = TreeEntry {mode :: BL.ByteString, name :: BL.ByteString, sha ::  BL.ByteString} deriving (Show, Eq)
 data TreeObject = TreeObject [TreeEntry]
 
-isFile :: TreeEntry -> Bool
-isFile = (== "100644") . mode
+fileEntryModeValue :: ByteString
+fileEntryModeValue = "100644"
 
-isDirectory :: TreeEntry -> Bool
-isDirectory = (== "40000") . mode
+directoryEntityModeValue :: ByteString
+directoryEntityModeValue = "40000"
 
+entityIsFile :: TreeEntry -> Bool
+entityIsFile = (== fileEntryModeValue) . mode
+
+entityIsDirectory :: TreeEntry -> Bool
+entityIsDirectory = (== directoryEntityModeValue) . mode
 
 parseTreeObject :: Parser TreeObject
-parseTreeObject = do 
-    head <-    string "tree " 
-            *>  many1 digit 
+parseTreeObject = do
+    head <-    string "tree "
+            *>  many1 digit
             *>  char '\0'
-    entries <- many parseTreeEntry 
-    return $ TreeObject entries       
+    entries <- many parseTreeEntry
+    return $ TreeObject entries
 
 --tree [content size]\0[Entries having references to other trees and blobs]
 --[mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
@@ -135,15 +185,84 @@ parseTreeEntry = do
     sha <- count 20 anyChar
     return $ TreeEntry (C8.pack mode) (C8.pack name) (C8.pack sha)
 
+
+-- write-tree
+-- TreeEntry
+--tree [content size]\0[Entries having references to other trees and blobs]
+--[mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
+
+isDir :: FilePath -> IO Bool
+isDir = doesDirectoryExist
+
+isFile :: FilePath -> IO Bool
+isFile = doesFileExist
+
+toByteStringRaw :: TreeObject -> ByteString
+toByteStringRaw (TreeObject entries) = BL.concat $ map toByteStringRawEntry entries
+
+toByteStringRawEntry :: TreeEntry -> ByteString
+toByteStringRawEntry (TreeEntry mode name sha) = BL.concat [mode, " ", name, "\0", sha]
+
+calculateContentSize :: TreeObject -> Int
+calculateContentSize (TreeObject entries) = sum $ map calculateContentSizeEntry entries
+
+calculateContentSizeEntry :: TreeEntry -> Int
+calculateContentSizeEntry (TreeEntry mode name sha) = 1 + fromIntegral (BL.length mode) + 1 + fromIntegral (BL.length name) + 1 + fromIntegral (BL.length sha)
+
+addHeaderForTreeObject :: TreeObject -> ByteString
+addHeaderForTreeObject treeObject = BL.append header (toByteStringRaw treeObject)
+    where header = C8.pack $ "tree " ++ show (calculateContentSize treeObject) ++ "\0"
+
+getTreeSha :: TreeObject -> Digest SHA1
+getTreeSha treeObject = hashlazy $ addHeaderForTreeObject treeObject
+
+createFileEntry :: FilePath -> Digest SHA1 -> IO TreeEntry
+createFileEntry filePath sha = do
+    let fileName = last $ split '/' (pack filePath)
+    return $ TreeEntry  fileEntryModeValue (BL.fromStrict fileName) (C8.pack $ show sha)
+
+createDirectoryEntry :: FilePath -> Digest SHA1 -> IO TreeEntry
+createDirectoryEntry filePath sha = do
+    let dirName = last $ split '/' (pack filePath)
+    return $ TreeEntry directoryEntityModeValue  (BL.fromStrict dirName) (C8.pack $ show sha)
+
+createFileEntityFromPath :: FilePath -> IO (Either IOException TreeEntry)
+createFileEntityFromPath filePath = do
+    hash <- hashObjectInternal filePath
+    traverse (createFileEntry filePath) hash
+
+createDirectoryEntityFromPath :: FilePath -> IO TreeEntry
+createDirectoryEntityFromPath filePath = do
+    treeObject <- writeTreeInternal filePath
+    let hash = getTreeSha treeObject
+    createDirectoryEntry filePath hash
+
+
+writeTreeInternal :: FilePath -> IO TreeObject
+writeTreeInternal root = do
+    filePaths <- listDirectory root
+    fileEntitysEithers <- mapM createFileEntityFromPath filePaths
+    let fileEntitys = map (either (error . show) id) fileEntitysEithers
+    directoryEntitys <- filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
+    let treeObject = TreeObject (fileEntitys ++ directoryEntitys)
+    let content = addHeaderForTreeObject treeObject
+    writeObjectFile content
+    return treeObject
+
+writeTree :: FilePath -> IO ()
+writeTree root = do
+    treeObject <- writeTreeInternal root
+    print $ getTreeSha treeObject
+
 -- Main
 main :: IO ()
 main = getArgs >>= parseArgs
 
-parseArgs :: [String] -> IO() 
+parseArgs :: [String] -> IO()
 parseArgs ["init"] = initGitFile
 parseArgs ["cat-file", parameters, blob_sha] = catFile parameters blob_sha
 parseArgs ["hash-object", parameters, filePath] = hashObject filePath
-parseArgs ["ls-tree", parameters, tree_sha] 
+parseArgs ["ls-tree", parameters, tree_sha]
         | parameters == "--name-only" = lsTree True tree_sha
         | otherwise = lsTree False tree_sha
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
