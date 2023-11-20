@@ -14,6 +14,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.Environment
 import System.FilePath ((</>))
 import System.FilePath (takeDirectory)
+import Control.Monad (guard)
 
 import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
@@ -248,12 +249,18 @@ fetchFileEntities filePaths = do
 gitignore :: [FilePath]
 gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
 
+
 toEntity :: FilePath -> IO TreeEntry
 toEntity filePath = do
     isDirectory <- isDir filePath
-    if isDirectory
-        then createDirectoryEntityFromPath filePath
-        else createFileEntityFromPath filePath >>= either (error . show) return
+    guard isDirectory
+    createDirectoryEntityFromPath filePath
+
+    isFile <- isFile filePath
+    guard isFile
+    createFileEntityFromPath filePath >>= either (error . show) return
+
+    error $ "Invalid entity: " ++ filePath
 
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
