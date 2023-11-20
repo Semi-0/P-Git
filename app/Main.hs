@@ -237,13 +237,22 @@ createDirectoryEntityFromPath filePath = do
     let hash = getTreeSha treeObject
     createDirectoryEntry filePath hash
 
+fetchDirectoryEntities :: [FilePath] -> IO [TreeEntry]
+fetchDirectoryEntities filePaths = do
+    filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
+
+fetchFileEntities :: [FilePath] -> IO [TreeEntry]
+fetchFileEntities filePaths = do
+    fileEntitysEithers <- filterM isFile filePaths >>=  mapM createFileEntityFromPath
+    let fileEntitys = map (either (error . show) id) fileEntitysEithers
+    return fileEntitys
+
 
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
-    fileEntitysEithers <- filterM isFile filePaths >>=  mapM createFileEntityFromPath
-    let fileEntitys = map (either (error . show) id) fileEntitysEithers
-    directoryEntitys <- filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
+    fileEntitys <- fetchFileEntities filePaths
+    directoryEntitys <- fetchDirectoryEntities filePaths
     let treeObject = TreeObject (fileEntitys ++ directoryEntitys)
     let content = addHeaderForTreeObject treeObject
     writeObjectFile content
@@ -267,7 +276,7 @@ parseArgs ["ls-tree", parameters, tree_sha]
         | otherwise = lsTree False tree_sha
 
 parseArgs ["write-tree", root] = writeTree root
-parseArgs ["write-tree"] = writeTree "."        
+parseArgs ["write-tree"] = writeTree "."
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
 -- helper
