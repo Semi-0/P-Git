@@ -39,7 +39,6 @@ import Control.Concurrent.Async (mapConcurrently)
 
 -- Init
 
-
 initGitFile :: IO()
 initGitFile = do
     let createParents = True
@@ -64,9 +63,6 @@ readObject blob_sha = do
             file_content <- BL.readFile filePath
             return $ decompress file_content
         else return $ Left $ userError "File does not exist"
-
-
-
 
 writeObjectFile ::  ByteString -> IO (Either IOException (Digest SHA1))
 writeObjectFile  content = do
@@ -106,7 +102,6 @@ hashObjectInternal :: FilePath ->  IO (Either IOException (Digest SHA1))
 hashObjectInternal filePath = do
     content <- addHeader <$> BL.readFile filePath
     writeObjectFile content
-
 
 hashObject :: FilePath -> IO()
 hashObject filePath = hashObjectInternal filePath >>= print
@@ -185,7 +180,7 @@ toByteStringRawEntry :: TreeEntry -> ByteString
 toByteStringRawEntry (TreeEntry mode name sha) = BL.concat [mode, " ", name, "\0", sha]
 
 calculateContentSize :: TreeObject -> Int
-calculateContentSize (TreeObject entries) = sum $ map calculateContentSizeEntry entries
+calculateContentSize treeObject = fromIntegral $ BL.length $ toByteStringRaw treeObject
 
 calculateContentSizeEntry :: TreeEntry -> Int
 calculateContentSizeEntry entry = fromIntegral $ BL.length $ toByteStringRawEntry $ entry
@@ -252,7 +247,6 @@ writeTreeInternal root = do
     let content = addHeaderForTreeObject treeObject
     writeObjectFile content
     return treeObject
-
 
 maybeMap :: (a -> b) -> Maybe a -> Maybe b
 maybeMap f = \case
