@@ -198,7 +198,7 @@ calculateContentSizeEntry entry = fromIntegral $ BL.length $ toByteStringRawEntr
 
 addHeaderForTreeObject :: TreeObject -> ByteString
 addHeaderForTreeObject treeObject = BL.append header (toByteStringRaw treeObject)
-    where header = C8.pack $ "tree " ++ show ((calculateContentSize treeObject) - 60) ++ "\0"
+    where header = C8.pack $ "tree " ++ show (calculateContentSize treeObject) ++ "\0"
 
 getTreeSha :: TreeObject -> Digest SHA1
 getTreeSha treeObject = hashlazy $ addHeaderForTreeObject treeObject
