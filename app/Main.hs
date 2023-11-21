@@ -5,6 +5,8 @@
 
 module Main (main) where
 
+
+
 import System.Directory (createDirectoryIfMissing, listDirectory, doesFileExist, doesDirectoryExist)
 import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hPutStrLn, withFile, writeFile)
@@ -33,7 +35,7 @@ import GHC.IO.Device (RawIO(write))
 import qualified Control.Exception as E
 import Data.List (sort)
 import Data.Maybe (catMaybes)
-
+import Control.Concurrent.Async (mapConcurrently)
 
 -- Init
 
@@ -78,9 +80,11 @@ readObject blob_sha = do
 writeObjectFile ::  ByteString -> IO (Either IOException (Digest SHA1))
 writeObjectFile  content = do
     let sha = hashlazy content :: Digest SHA1
-        fileDir = appendPath (show sha)
-    createDirectoryIfMissing True (takeDirectory fileDir)
-    E.try $ B.writeFile fileDir (BL.toStrict $ compress content) >> return sha
+    sha `seq` do
+        let fileDir = appendPath (show sha)
+        createDirectoryIfMissing True (takeDirectory fileDir)
+        E.try $ B.writeFile fileDir (BL.toStrict $ compress content) >> return sha
+
 
 -- CatFile
 
@@ -265,7 +269,7 @@ writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
     let processedFilePath = sort $ filter (`notElem` gitignore) filePaths
-    maybeTreeEntries  <- mapM toEntity processedFilePath
+    maybeTreeEntries  <- mapConcurrently toEntity processedFilePath
     let treeEntries = catMaybes maybeTreeEntries
     let treeObject = TreeObject treeEntries
     let content = addHeaderForTreeObject treeObject

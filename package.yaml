@@ -12,6 +12,7 @@ license:             BSD3
 
 dependencies:
 - base >= 4.7 && < 5
+- async
 - bytestring           # useful to send bytes over the network
 - containers           # may help with the database structure and debugging
 - cryptonite           # dealing with SHA1
