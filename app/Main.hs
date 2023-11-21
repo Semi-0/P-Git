@@ -54,15 +54,6 @@ initGitFile = do
 
 -- Basic IO
 
--- readObject :: String -> IO ByteString
--- readObject blob_sha = do
---                         let filePath = appendPath blob_sha
---                         fileExists <- doesFileExist filePath
---                         if fileExists
---                             then do
---                                 file_content <- BL.readFile filePath
---                                 return $ decompress file_content
---                             else return $ "File does not exist"
 
 readObject :: String -> IO (Either IOException ByteString)
 readObject blob_sha = do
@@ -91,13 +82,9 @@ writeObjectFile  content = do
 dropUnrelevant :: ByteString -> ByteString
 dropUnrelevant = BL.drop 8
 
-
-
-
 appendPath :: String -> String
 appendPath sha = ".git" </> "objects" </> dir </> file
                     where (dir, file) = splitAt 2 sha
-
 
 catFile :: String -> String -> IO()
 catFile parameters shardName
@@ -115,8 +102,6 @@ addHeader content = BL.append header content
   where
     header = C8.pack $ "blob " ++ show (BL.length content) ++ "\0"
 
-
-
 hashObjectInternal :: FilePath ->  IO (Either IOException (Digest SHA1))
 hashObjectInternal filePath = do
     content <- addHeader <$> BL.readFile filePath
@@ -126,12 +111,10 @@ hashObjectInternal filePath = do
 hashObject :: FilePath -> IO()
 hashObject filePath = hashObjectInternal filePath >>= print
 
-
-
-
-
-
 -- Tree
+
+data TreeEntry = TreeEntry {mode :: BL.ByteString, name :: BL.ByteString, sha ::  BL.ByteString} deriving (Show, Eq)
+data TreeObject = TreeObject [TreeEntry]
 
 lsTree :: Bool -> String -> IO()
 lsTree nameOnly tree_sha = do
@@ -151,9 +134,6 @@ printEntry :: Bool -> TreeEntry -> IO()
 printEntry nameOnly entry =
     if nameOnly then putStrLn $ C8.unpack (name entry)
                 else print entry
-
-data TreeEntry = TreeEntry {mode :: BL.ByteString, name :: BL.ByteString, sha ::  BL.ByteString} deriving (Show, Eq)
-data TreeObject = TreeObject [TreeEntry]
 
 fileEntryModeValue :: ByteString
 fileEntryModeValue = "100644"
@@ -208,13 +188,11 @@ calculateContentSize :: TreeObject -> Int
 calculateContentSize (TreeObject entries) = sum $ map calculateContentSizeEntry entries
 
 calculateContentSizeEntry :: TreeEntry -> Int
-calculateContentSizeEntry (TreeEntry mode name sha) = 1 + fromIntegral (BL.length mode) + 1 + fromIntegral (BL.length name) + 1 + fromIntegral (BL.length sha)
+calculateContentSizeEntry entry = fromIntegral $ BL.length $ toByteStringRawEntry $ entry
 
 addHeaderForTreeObject :: TreeObject -> ByteString
 addHeaderForTreeObject treeObject = BL.append header (toByteStringRaw treeObject)
     where header = C8.pack $ "tree " ++ show (calculateContentSize treeObject) ++ "\0"
-
-
 
 getTreeSha :: TreeObject -> Digest SHA1
 getTreeSha treeObject = hashlazy $ addHeaderForTreeObject treeObject
@@ -251,11 +229,8 @@ fetchFileEntities filePaths = do
     let fileEntitys = map (either (error . show) id) fileEntitysEithers
     return fileEntitys
 
-
 gitignore :: [FilePath]
 gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
-
-
 
 toEntity ::  FilePath -> IO (Maybe TreeEntry)
 toEntity  filePath = isDir filePath >>= \case
