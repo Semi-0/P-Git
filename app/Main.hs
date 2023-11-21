@@ -247,15 +247,15 @@ toEntity  filePath = isDir filePath >>= \case
 
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
-    filePaths <- listDirectory root
-    treeObject <- fmap TreeObject $ getEntries $ sort $ filter (`notElem` gitignore) filePaths
+    filePath <- sort <$> (filter (`notElem` gitignore) <$> listDirectory root)
+    treeObject <- TreeObject <$> getEntries (toEntity . withRootPath root) filePath
     writeTree treeObject
     return treeObject
         where
             withRootPath rootPath filePath = rootPath </> filePath
-            getEntries filepath = catMaybes <$> mapConcurrently (toEntity . withRootPath root) filepath
+            getEntries method filepath = catMaybes <$> mapConcurrently method filepath
             writeTree treeObject = writeObjectFile $ addHeaderForTreeObject treeObject
-            
+
 writeTree :: FilePath -> IO ()
 writeTree root = do
     treeObject <- writeTreeInternal root
