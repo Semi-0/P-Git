@@ -3,9 +3,7 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Main (main) where
-
-
+module Main  where
 
 import System.Directory (createDirectoryIfMissing, listDirectory, doesFileExist, doesDirectoryExist)
 import System.FilePath ((</>))
@@ -18,11 +16,13 @@ import System.Environment
 import System.FilePath ((</>))
 import System.FilePath (takeDirectory)
 import Control.Monad (guard)
+import Data.ByteArray qualified as BA
 
 import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy  as BL
 import qualified Data.ByteString as B
+import qualified Crypto.Hash as H
 import System.Directory (doesFileExist, doesDirectoryExist)
 import Data.ByteString.Char8 (pack, unpack, split)
 import qualified Data.ByteString.Lazy.Char8 as C8
@@ -37,7 +37,9 @@ import Data.List (sort)
 import Data.Maybe (catMaybes)
 import Control.Concurrent.Async (mapConcurrently)
 
--- Init
+
+
+-- -- Init
 
 initGitFile :: IO()
 initGitFile = do
@@ -51,8 +53,8 @@ initGitFile = do
         unless headExists $ withFile (".git" </> "HEAD") WriteMode $ \f -> hPutStrLn f "ref: refs/heads/master"
     putStrLn $ "Initialized git directory"
 
--- Basic IO
 
+-- -- Basic IO
 
 readObject :: String -> IO (Either IOException ByteString)
 readObject blob_sha = do
@@ -73,7 +75,7 @@ writeObjectFile  content = do
         E.try $ B.writeFile fileDir (BL.toStrict $ compress content) >> return sha
 
 
--- CatFile
+-- -- CatFile
 
 dropUnrelevant :: ByteString -> ByteString
 dropUnrelevant = BL.drop 8
@@ -91,7 +93,8 @@ catFile parameters shardName
             Left e -> putStrLn $ "Error: " ++ show e
     | otherwise = putStrLn "Unknown Parameters for CatFile"
 
--- HashObject
+
+-- -- HashObject
 
 addHeader :: BL.ByteString -> BL.ByteString
 addHeader content = BL.append header content
@@ -106,7 +109,8 @@ hashObjectInternal filePath = do
 hashObject :: FilePath -> IO()
 hashObject filePath = hashObjectInternal filePath >>= print
 
--- Tree
+
+-- -- Tree
 
 data TreeEntry = TreeEntry {mode :: BL.ByteString, name :: BL.ByteString, sha ::  BL.ByteString} deriving (Show, Eq)
 data TreeObject = TreeObject [TreeEntry]
@@ -142,6 +146,8 @@ entityIsFile = (== fileEntryModeValue) . mode
 entityIsDirectory :: TreeEntry -> Bool
 entityIsDirectory = (== directoryEntityModeValue) . mode
 
+
+
 parseTreeObject :: Parser TreeObject
 parseTreeObject = do
     head <-    string "tree "
@@ -167,6 +173,10 @@ parseTreeEntry = do
 --tree [content size]\0[Entries having references to other trees and blobs]
 --[mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
 -- test again
+
+digestToBL :: H.Digest a -> C8.ByteString
+digestToBL = BL.fromStrict . BA.convert
+
 
 isDir :: FilePath -> IO Bool
 isDir = doesDirectoryExist
@@ -196,18 +206,17 @@ getTreeSha treeObject = hashlazy $ addHeaderForTreeObject treeObject
 createFileEntry :: FilePath -> Digest SHA1 -> IO TreeEntry
 createFileEntry filePath sha = do
     let fileName = last $ split '/' (pack filePath)
-    return $ TreeEntry  fileEntryModeValue (BL.fromStrict fileName) (C8.pack $ show sha)
+    return $ TreeEntry  fileEntryModeValue (BL.fromStrict fileName) (digestToBL sha)
 
 createDirectoryEntry :: FilePath -> Digest SHA1 -> IO TreeEntry
 createDirectoryEntry filePath sha = do
     let dirName = last $ split '/' (pack filePath)
-    return $ TreeEntry directoryEntityModeValue  (BL.fromStrict dirName) (C8.pack $ show sha)
+    return $ TreeEntry directoryEntityModeValue  (BL.fromStrict dirName) (digestToBL sha)
 
 createFileEntityFromPath :: FilePath -> IO (Either IOException TreeEntry)
 createFileEntityFromPath filePath = do
     hash <- hashObjectInternal filePath
     traverse (createFileEntry filePath) hash
-
 
 createDirectoryEntityFromPath :: FilePath -> IO TreeEntry
 createDirectoryEntityFromPath filePath = do
@@ -259,6 +268,7 @@ writeTree root = do
     treeObject <- writeTreeInternal root
     print $ getTreeSha treeObject
 
+
 -- Main
 main :: IO ()
 main = getArgs >>= parseArgs
@@ -274,6 +284,7 @@ parseArgs ["ls-tree", parameters, tree_sha]
 parseArgs ["write-tree", root] = writeTree root
 parseArgs ["write-tree"] = writeTree "."
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
+
 
 -- helper
 
