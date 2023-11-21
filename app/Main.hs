@@ -31,7 +31,6 @@ import Data.Char (chr)
 import GHC.IO.Device (RawIO(write))
 import qualified Control.Exception as E
 import Data.List (sort)
-import Data.Maybe (catMaybes)
 
 
 -- Init
@@ -251,25 +250,24 @@ gitignore :: [FilePath]
 gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
 
 
-toEntity :: FilePath -> IO (Maybe TreeEntry)
+
+toEntity :: FilePath -> IO TreeEntry
 toEntity filePath = do
     isDirectory <- isDir filePath
-    if isDirectory
-    then Just <$> createDirectoryEntityFromPath filePath
-    else do
-        isFile <- doesFileExist filePath
-        if isFile
-        then createFileEntityFromPath filePath >>= either (error . show) (return . Just)
-        else return Nothing
+    guard isDirectory
+    createDirectoryEntityFromPath filePath
 
-mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
-mapMaybeM f = fmap catMaybes . mapM f
+    isFile <- isFile filePath
+    guard isFile
+    createFileEntityFromPath filePath >>= either (error . show) return
+
+ 
 
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
     let processedFilePath = sort $ filter (`notElem` gitignore) filePaths
-    treeEntries <- mapMaybeM  toEntity processedFilePath
+    treeEntries <- mapM toEntity processedFilePath
     let treeObject = TreeObject treeEntries
     let content = addHeaderForTreeObject treeObject
     writeObjectFile content
