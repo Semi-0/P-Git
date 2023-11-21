@@ -257,19 +257,21 @@ gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
 
 
 
-toEntity :: FilePath -> IO (Maybe TreeEntry)
-toEntity filePath = isDir filePath >>= \case
+toEntity ::  FilePath -> IO (Maybe TreeEntry)
+toEntity  filePath = isDir filePath >>= \case
     True -> Just <$> createDirectoryEntityFromPath filePath
     False -> isFile filePath >>= \case
         True -> Just <$> (createFileEntityFromPath filePath >>= either (error . show) return)
         False -> return Nothing
  
+withRootPath :: FilePath -> FilePath -> FilePath
+withRootPath rootPath filePath = rootPath </> filePath
 
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
     let processedFilePath = sort $ filter (`notElem` gitignore) filePaths
-    maybeTreeEntries  <- mapConcurrently toEntity processedFilePath
+    maybeTreeEntries  <- mapConcurrently (toEntity . withRootPath root) processedFilePath
     let treeEntries = catMaybes maybeTreeEntries
     let treeObject = TreeObject treeEntries
     let content = addHeaderForTreeObject treeObject
