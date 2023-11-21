@@ -166,6 +166,7 @@ parseTreeEntry = do
 -- TreeEntry
 --tree [content size]\0[Entries having references to other trees and blobs]
 --[mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
+-- test again
 
 isDir :: FilePath -> IO Bool
 isDir = doesDirectoryExist
