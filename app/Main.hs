@@ -191,7 +191,7 @@ toByteStringRawEntry :: TreeEntry -> ByteString
 toByteStringRawEntry (TreeEntry mode name sha) = BL.concat [mode, " ", name, "\0", sha]
 
 calculateContentSize :: TreeObject -> Int
-calculateContentSize treeObject = fromIntegral $ BL.length $ toByteStringRaw treeObject 
+calculateContentSize treeObject = fromIntegral $ BL.length $ toByteStringRaw treeObject
 
 calculateContentSizeEntry :: TreeEntry -> Int
 calculateContentSizeEntry entry = fromIntegral $ BL.length $ toByteStringRawEntry $ entry
@@ -213,6 +213,17 @@ createDirectoryEntry filePath sha = do
     let dirName = last $ split '/' (pack filePath)
     return $ TreeEntry directoryEntityModeValue  (BL.fromStrict dirName) (digestToBL sha)
 
+fetchDirectoryEntities :: [FilePath] -> IO [TreeEntry]
+fetchDirectoryEntities filePaths = do
+    filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
+
+fetchFileEntities :: [FilePath] -> IO [TreeEntry]
+fetchFileEntities filePaths = do
+    fileEntitysEithers <- filterM isFile filePaths >>=  mapM createFileEntityFromPath
+    let fileEntitys = map (either (error . show) id) fileEntitysEithers
+    return fileEntitys
+
+
 createFileEntityFromPath :: FilePath -> IO (Either IOException TreeEntry)
 createFileEntityFromPath filePath = do
     hash <- hashObjectInternal filePath
@@ -224,16 +235,6 @@ createDirectoryEntityFromPath filePath = do
     let hash = getTreeSha treeObject
     createDirectoryEntry filePath hash
 
-fetchDirectoryEntities :: [FilePath] -> IO [TreeEntry]
-fetchDirectoryEntities filePaths = do
-    filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
-
-fetchFileEntities :: [FilePath] -> IO [TreeEntry]
-fetchFileEntities filePaths = do
-    fileEntitysEithers <- filterM isFile filePaths >>=  mapM createFileEntityFromPath
-    let fileEntitys = map (either (error . show) id) fileEntitysEithers
-    return fileEntitys
-
 gitignore :: [FilePath]
 gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
 
@@ -243,26 +244,18 @@ toEntity  filePath = isDir filePath >>= \case
     False -> isFile filePath >>= \case
         True -> Just <$> (createFileEntityFromPath filePath >>= either (error . show) return)
         False -> return Nothing
- 
-withRootPath :: FilePath -> FilePath -> FilePath
-withRootPath rootPath filePath = rootPath </> filePath
 
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
-    let processedFilePath = sort $ filter (`notElem` gitignore) filePaths
-    maybeTreeEntries  <- mapConcurrently (toEntity . withRootPath root) processedFilePath
-    let treeEntries = catMaybes maybeTreeEntries
-    let treeObject = TreeObject treeEntries
-    let content = addHeaderForTreeObject treeObject
-    writeObjectFile content
+    treeObject <- fmap TreeObject $ getEntries $ sort $ filter (`notElem` gitignore) filePaths
+    writeTree treeObject
     return treeObject
-
-maybeMap :: (a -> b) -> Maybe a -> Maybe b
-maybeMap f = \case
-    Just x -> Just $ f x
-    Nothing -> Nothing    
-
+        where
+            withRootPath rootPath filePath = rootPath </> filePath
+            getEntries filepath = catMaybes <$> mapConcurrently (toEntity . withRootPath root) filepath
+            writeTree treeObject = writeObjectFile $ addHeaderForTreeObject treeObject
+            
 writeTree :: FilePath -> IO ()
 writeTree root = do
     treeObject <- writeTreeInternal root
