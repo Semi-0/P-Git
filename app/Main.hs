@@ -1,6 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Main (main) where
 
@@ -31,6 +32,7 @@ import Data.Char (chr)
 import GHC.IO.Device (RawIO(write))
 import qualified Control.Exception as E
 import Data.List (sort)
+import Data.Maybe (catMaybes)
 
 
 -- Init
@@ -251,27 +253,30 @@ gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
 
 
 
-toEntity :: FilePath -> IO TreeEntry
-toEntity filePath = do
-    isDirectory <- isDir filePath
-    guard isDirectory
-    createDirectoryEntityFromPath filePath
-
-    isFile <- isFile filePath
-    guard isFile
-    createFileEntityFromPath filePath >>= either (error . show) return
-
+toEntity :: FilePath -> IO (Maybe TreeEntry)
+toEntity filePath = isDir filePath >>= \case
+    True -> Just <$> createDirectoryEntityFromPath filePath
+    False -> isFile filePath >>= \case
+        True -> Just <$> (createFileEntityFromPath filePath >>= either (error . show) return)
+        False -> return Nothing
  
 
 writeTreeInternal :: FilePath -> IO TreeObject
 writeTreeInternal root = do
     filePaths <- listDirectory root
     let processedFilePath = sort $ filter (`notElem` gitignore) filePaths
-    treeEntries <- mapM toEntity processedFilePath
+    maybeTreeEntries  <- mapM toEntity processedFilePath
+    let treeEntries = catMaybes maybeTreeEntries
     let treeObject = TreeObject treeEntries
     let content = addHeaderForTreeObject treeObject
     writeObjectFile content
     return treeObject
+
+
+maybeMap :: (a -> b) -> Maybe a -> Maybe b
+maybeMap f = \case
+    Just x -> Just $ f x
+    Nothing -> Nothing    
 
 writeTree :: FilePath -> IO ()
 writeTree root = do
