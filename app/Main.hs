@@ -16,7 +16,7 @@ import System.Environment
 import System.FilePath ((</>))
 import System.FilePath (takeDirectory)
 import Control.Monad (guard)
-import Data.ByteArray qualified as BA
+import qualified Data.ByteArray  as BA
 
 import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
