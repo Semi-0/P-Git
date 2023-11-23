@@ -308,15 +308,13 @@ commitToByteString (Commit treeSha parentSha author committer message) = BL.conc
           currentCommiter = "committer " <> commitPersonToByteString committer <> separater
           commitMessage = message <> separater
 
-
+-- what the fuck?
 commitTreeInternal :: ByteString -> ByteString -> ByteString -> IO (Either IOException (Digest SHA1))
 commitTreeInternal treeSha parentSha message = do
     let author = createCommitPerson
         committer = createCommitPerson
     commit <- commitToByteString <$> (Commit <$> pure treeSha <*> pure parentSha <*> author <*> committer <*> pure message)
     writeObjectFile commit
-
-
 
 commitTree :: ByteString -> ByteString -> ByteString  -> IO ()
 commitTree treeSha parentSha message = do 
@@ -339,7 +337,7 @@ parseArgs ["ls-tree", parameters, tree_sha]
 
 parseArgs ["write-tree", root] = writeTree root
 parseArgs ["write-tree"] = writeTree "."
--- i know i should using parser here instead of doing this, but let's just do it for now
+-- i know i should using parser here instead of doing this, but let's just do it for now adas
 parseArgs ["commit-tree", tree_sha, parameterA, parent_sha, parameterB,  message] = commitTree (C8.pack tree_sha) (C8.pack parent_sha) (C8.pack message)
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
