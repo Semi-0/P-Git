@@ -38,7 +38,7 @@ import Data.Maybe (catMaybes)
 import Control.Concurrent.Async (mapConcurrently)
 import qualified Data.Time as DF
 import qualified Data.Time as DC
-
+import qualified Data.ByteString.Builder as B
 
 -- -- Init
 
@@ -298,15 +298,16 @@ commitPersonToByteString :: CommitPerson -> BL.ByteString
 commitPersonToByteString (CommitPerson name email timestamp) = BL.concat [name, " <", email, "> ", timestamp]
 
 commitToByteString :: Commit -> BL.ByteString
-commitToByteString (Commit treeSha parentSha author committer message) = BL.concat [header, treeSHA, parentSHA, commitAuthor, currentCommiter, separater, commitMessage, separater]
+commitToByteString (Commit treeSha parentSha author committer message) = 
+    B.toLazyByteString $ mconcat [header, treeSHA, parentSHA, commitAuthor, currentCommitter, separator, commitMessage, separator]
     where
-          separater = C8.pack "\n"
-          header = C8.pack $ "commit " ++ show (BL.length message)
-          treeSHA = "tree " <> treeSHA <> separater
-          parentSHA = parentSha <> separater
-          commitAuthor = "author " <> commitPersonToByteString author <> separater
-          currentCommiter = "committer " <> commitPersonToByteString committer <> separater
-          commitMessage = message <> separater
+        separator = B.stringUtf8 "\n"
+        header = B.stringUtf8 $ "commit " ++ show (BL.length message)
+        treeSHA = B.stringUtf8 "tree " <> B.byteString treeSha <> separator
+        parentSHA = B.byteString parentSha <> separator
+        commitAuthor = B.stringUtf8 "author " <> B.byteString (commitPersonToByteString author) <> separator
+        currentCommitter = B.stringUtf8 "committer " <> B.byteString (commitPersonToByteString committer) <> separator
+        commitMessage = B.byteString message <> separator
 
 -- what the fuck?
 commitTreeInternal :: ByteString -> ByteString -> ByteString -> IO (Either IOException (Digest SHA1))
