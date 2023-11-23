@@ -38,7 +38,7 @@ import Data.Maybe (catMaybes)
 import Control.Concurrent.Async (mapConcurrently)
 import qualified Data.Time as DF
 import qualified Data.Time as DC
-import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Builder as Builder
 
 -- -- Init
 
@@ -299,15 +299,15 @@ commitPersonToByteString (CommitPerson name email timestamp) = BL.concat [name, 
 
 commitToByteString :: Commit -> BL.ByteString
 commitToByteString (Commit treeSha parentSha author committer message) = 
-    B.toLazyByteString $ mconcat [header, treeSHA, parentSHA, commitAuthor, currentCommitter, separator, commitMessage, separator]
+    Builder.toLazyByteString $ mconcat [header, treeSHA, parentSHA, commitAuthor, currentCommitter, separator, commitMessage, separator]
     where
-        separator = B.stringUtf8 "\n"
-        header = B.stringUtf8 $ "commit " ++ show (BL.length message)
-        treeSHA = B.stringUtf8 "tree " <> B.byteString treeSha <> separator
-        parentSHA = B.byteString parentSha <> separator
-        commitAuthor = B.stringUtf8 "author " <> B.byteString (commitPersonToByteString author) <> separator
-        currentCommitter = B.stringUtf8 "committer " <> B.byteString (commitPersonToByteString committer) <> separator
-        commitMessage = B.byteString message <> separator
+        separator = Builder.stringUtf8 "\n"
+        header = Builder.stringUtf8 $ "commit " ++ show (BL.length message)
+        treeSHA = Builder.stringUtf8 "tree " <> Builder.byteString (BL.toStrict treeSha) <> separator
+        parentSHA = Builder.byteString (BL.toStrict parentSha) <> separator
+        commitAuthor = Builder.stringUtf8 "author " <> Builder.byteString (BL.toStrict $ commitPersonToByteString author) <> separator
+        currentCommitter = Builder.stringUtf8 "committer " <> Builder.byteString (BL.toStrict $ commitPersonToByteString committer) <> separator
+        commitMessage = Builder.byteString (BL.toStrict message) <> separator
 
 -- what the fuck?
 commitTreeInternal :: ByteString -> ByteString -> ByteString -> IO (Either IOException (Digest SHA1))
