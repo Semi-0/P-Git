@@ -36,7 +36,7 @@ import qualified Control.Exception as E
 import Data.List (sort)
 import Data.Maybe (catMaybes)
 import Control.Concurrent.Async (mapConcurrently)
-import Data.Time qualified as DF
+import qualified Data.Time as DF
 import qualified Data.Time as DC
 
 
