@@ -299,7 +299,7 @@ commitPersonToByteString (CommitPerson name email timestamp) = BL.concat [name, 
 
 commitToByteString :: Commit -> BL.ByteString
 commitToByteString (Commit treeSha parentSha author committer message) = 
-    Builder.toLazyByteString $ mconcat [header, treeSHA, parentSHA, commitAuthor, currentCommitter, separator, commitMessage, separator]
+    Builder.toLazyByteString $ mconcat [header, treeSHA, parentSHA, commitAuthor, currentCommitter, separator, commitMessage]
     where
         separator = Builder.stringUtf8 "\n"
         header = Builder.stringUtf8 $ "commit " ++ show (BL.length message)  <> "\0"
