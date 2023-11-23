@@ -29,14 +29,15 @@ import qualified Data.ByteString.Lazy.Char8 as C8
 import Data.Word (Word8)
 import Data.Char (ord)
 import Text.ParserCombinators.Parsec hiding (spaces)
-import Control.Monad.RWS (MonadState(put))
+import Control.Monad.RWS (MonadState(put, get))
 import Data.Char (chr)
 import GHC.IO.Device (RawIO(write))
 import qualified Control.Exception as E
 import Data.List (sort)
 import Data.Maybe (catMaybes)
 import Control.Concurrent.Async (mapConcurrently)
-
+import Data.Time qualified as DF
+import qualified Data.Time as DC
 
 
 -- -- Init
@@ -262,6 +263,68 @@ writeTree root = do
     print $ getTreeSha treeObject
 
 
+-- create commit
+-- commit 156tree 070c6d5d918e5c051b5b8e72779b08c4eedd6da6
+-- parent 4c4a4d4f2a9d3e9c1228a0940632663307c029ab
+-- author John Doe <[email protected]> 1416224921 +0100
+-- committer John Doe <[email protected]> 1416224921 +0100
+
+-- This is my commit message
+
+data CommitPerson = CommitPerson {
+    personName :: BL.ByteString,
+    personEmail :: BL.ByteString,
+    personTimestamp ::  BL.ByteString
+}
+
+data Commit = Commit {
+    treeSHA :: BL.ByteString,
+    parentSHA ::  BL.ByteString,
+    commitAuthor :: CommitPerson,
+    commitCommitter :: CommitPerson,
+    commitMessage :: BL.ByteString
+}
+
+getTime ::IO BL.ByteString
+getTime = C8.pack . DF.formatTime DF.defaultTimeLocale "%s %z" <$> DC.getCurrentTime
+
+createCommitPerson :: IO CommitPerson
+createCommitPerson = do
+    let name = "Margaret Hamilton"
+        email = "margaret.hamilton@NASA.com"
+    CommitPerson name email <$> getTime
+
+commitPersonToByteString :: CommitPerson -> BL.ByteString
+commitPersonToByteString (CommitPerson name email timestamp) = BL.concat [name, " <", email, "> ", timestamp]
+
+commitToByteString :: Commit -> BL.ByteString
+commitToByteString (Commit treeSha parentSha author committer message) = BL.concat [header, treeSHA, parentSHA, commitAuthor, currentCommiter, separater, commitMessage, separater]
+    where
+          separater = C8.pack "\n"
+          header = C8.pack $ "commit " ++ show (BL.length message)
+          treeSHA = "tree " <> treeSHA <> separater
+          parentSHA = parentSha <> separater
+          commitAuthor = "author " <> commitPersonToByteString author <> separater
+          currentCommiter = "committer " <> commitPersonToByteString committer <> separater
+          commitMessage = message <> separater
+
+
+commitTreeInternal :: ByteString -> ByteString -> ByteString -> IO (Either IOException (Digest SHA1))
+commitTreeInternal treeSha parentSha message = do
+    let author = createCommitPerson
+        committer = createCommitPerson
+    commit <- commitToByteString <$> (Commit <$> pure treeSha <*> pure parentSha <*> author <*> committer <*> pure message)
+    writeObjectFile commit
+
+
+
+commitTree :: ByteString -> ByteString -> ByteString  -> IO ()
+commitTree treeSha parentSha message = do 
+    result <- commitTreeInternal treeSha parentSha message
+    case result of
+        Left err -> putStrLn $ "Error writing commit object: " ++ show err
+        Right sha -> print sha
+
 -- Main
 main :: IO ()
 main = getArgs >>= parseArgs
@@ -276,6 +339,8 @@ parseArgs ["ls-tree", parameters, tree_sha]
 
 parseArgs ["write-tree", root] = writeTree root
 parseArgs ["write-tree"] = writeTree "."
+-- i know i should using parser here instead of doing this, but let's just do it for now
+parseArgs ["commit-tree", tree_sha, parameterA, parent_sha, parameterB,  message] = commitTree (C8.pack tree_sha) (C8.pack parent_sha) (C8.pack message)
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
 
