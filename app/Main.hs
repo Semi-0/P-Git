@@ -302,7 +302,7 @@ commitToByteString (Commit treeSha parentSha author committer message) =
     Builder.toLazyByteString $ mconcat [header, treeSHA, parentSHA, commitAuthor, currentCommitter, separator, commitMessage, separator]
     where
         separator = Builder.stringUtf8 "\n"
-        header = Builder.stringUtf8 $ "commit " ++ show (BL.length message)
+        header = Builder.stringUtf8 $ "commit " ++ show (BL.length message)  <> "\0"
         treeSHA = Builder.stringUtf8 "tree " <> Builder.byteString (BL.toStrict treeSha) <> separator
         parentSHA = Builder.byteString (BL.toStrict parentSha) <> separator
         commitAuthor = Builder.stringUtf8 "author " <> Builder.byteString (BL.toStrict $ commitPersonToByteString author) <> separator
