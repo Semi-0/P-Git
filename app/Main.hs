@@ -4,10 +4,12 @@
 {-# LANGUAGE LambdaCase #-}
 
 module Main  where
-
+import Object
+import BasicIO
+import Parser
 import System.Directory (createDirectoryIfMissing, listDirectory, doesFileExist, doesDirectoryExist)
-import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hPutStrLn, withFile, writeFile)
+import Text.ParserCombinators.Parsec hiding (spaces)
 import Crypto.Hash (hashlazy, Digest, SHA1, digestFromByteString)
 import Control.Exception (IOException, try)
 import Control.Monad (void, filterM, unless)
@@ -17,6 +19,7 @@ import System.FilePath ((</>))
 import System.FilePath (takeDirectory)
 import Control.Monad (guard)
 import qualified Data.ByteArray  as BA
+import qualified Data.ByteString.Lazy.Char8 as C8
 
 import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
@@ -25,10 +28,10 @@ import qualified Data.ByteString as B
 import qualified Crypto.Hash as H
 import System.Directory (doesFileExist, doesDirectoryExist)
 import Data.ByteString.Char8 (pack, unpack, split)
-import qualified Data.ByteString.Lazy.Char8 as C8
+
 import Data.Word (Word8)
 import Data.Char (ord)
-import Text.ParserCombinators.Parsec hiding (spaces)
+
 import Control.Monad.RWS (MonadState(put, get))
 import Data.Char (chr)
 import GHC.IO.Device (RawIO(write))
@@ -55,35 +58,10 @@ initGitFile = do
     putStrLn $ "Initialized git directory"
 
 
--- -- Basic IO
-
-readObject :: String -> IO (Either IOException ByteString)
-readObject blob_sha = do
-    let filePath = appendPath blob_sha
-    fileExists <- doesFileExist filePath
-    if fileExists
-        then E.try $ do
-            file_content <- BL.readFile filePath
-            return $ decompress file_content
-        else return $ Left $ userError "File does not exist"
-
-writeObjectFile ::  ByteString -> IO (Either IOException (Digest SHA1))
-writeObjectFile  content = do
-    let sha = hashlazy content :: Digest SHA1
-    sha `seq` do
-        let fileDir = appendPath (show sha)
-        createDirectoryIfMissing True (takeDirectory fileDir)
-        E.try $ B.writeFile fileDir (BL.toStrict $ compress content) >> return sha
 
 
 -- -- CatFile
 
-dropUnrelevant :: ByteString -> ByteString
-dropUnrelevant = BL.drop 8
-
-appendPath :: String -> String
-appendPath sha = ".git" </> "objects" </> dir </> file
-                    where (dir, file) = splitAt 2 sha
 
 catFile :: String -> String -> IO()
 catFile parameters shardName
@@ -113,8 +91,6 @@ hashObject filePath = hashObjectInternal filePath >>= print
 
 -- -- Tree
 
-data TreeEntry = TreeEntry {mode :: BL.ByteString, name :: BL.ByteString, sha ::  BL.ByteString} deriving (Show, Eq)
-data TreeObject = TreeObject [TreeEntry]
 
 lsTree :: Bool -> String -> IO()
 lsTree nameOnly tree_sha = do
@@ -126,104 +102,12 @@ lsTree nameOnly tree_sha = do
                     Left err -> putStrLn $ "Error parsing tree object: " ++ show err
                     Right tree -> displayEntity nameOnly (\entry -> entityIsFile entry || entityIsDirectory entry) tree
 
-displayEntity :: Bool -> (TreeEntry -> Bool) -> TreeObject -> IO()
-displayEntity nameOnly pred (TreeObject entries) =
-        mapM_ (printEntry nameOnly) (filter pred entries)
-
-printEntry :: Bool -> TreeEntry -> IO()
-printEntry nameOnly entry =
-    if nameOnly then putStrLn $ C8.unpack (name entry)
-                else print entry
-
-fileEntryModeValue :: ByteString
-fileEntryModeValue = "100644"
-
-directoryEntityModeValue :: ByteString
-directoryEntityModeValue = "40000"
-
-entityIsFile :: TreeEntry -> Bool
-entityIsFile = (== fileEntryModeValue) . mode
-
-entityIsDirectory :: TreeEntry -> Bool
-entityIsDirectory = (== directoryEntityModeValue) . mode
-
-
-
-parseTreeObject :: Parser TreeObject
-parseTreeObject = do
-    head <-    string "tree "
-            *>  many1 digit
-            *>  char '\0'
-    entries <- many parseTreeEntry
-    return $ TreeObject entries
-
---tree [content size]\0[Entries having references to other trees and blobs]
---[mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
-parseTreeEntry :: Parser TreeEntry
-parseTreeEntry = do
-    mode <- many1 digit
-    char ' '
-    name <- many1 (noneOf "\0")
-    char '\0'
-    sha <- count 20 anyChar
-    return $ TreeEntry (C8.pack mode) (C8.pack name) (C8.pack sha)
-
 
 -- write-tree
 -- TreeEntry
 --tree [content size]\0[Entries having references to other trees and blobs]
 --[mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
 -- test again
-
-digestToBL :: H.Digest a -> C8.ByteString
-digestToBL = BL.fromStrict . BA.convert
-
-
-isDir :: FilePath -> IO Bool
-isDir = doesDirectoryExist
-
-isFile :: FilePath -> IO Bool
-isFile = doesFileExist
-
-toByteStringRaw :: TreeObject -> ByteString
-toByteStringRaw (TreeObject entries) = BL.concat $ map toByteStringRawEntry entries
-
-toByteStringRawEntry :: TreeEntry -> ByteString
-toByteStringRawEntry (TreeEntry mode name sha) = BL.concat [mode, " ", name, "\0", sha]
-
-calculateContentSize :: TreeObject -> Int
-calculateContentSize treeObject = fromIntegral $ BL.length $ toByteStringRaw treeObject
-
-calculateContentSizeEntry :: TreeEntry -> Int
-calculateContentSizeEntry entry = fromIntegral $ BL.length $ toByteStringRawEntry $ entry
-
-addHeaderForTreeObject :: TreeObject -> ByteString
-addHeaderForTreeObject treeObject = BL.append header (toByteStringRaw treeObject)
-    where header = C8.pack $ "tree " ++ show (calculateContentSize treeObject) ++ "\0"
-
-getTreeSha :: TreeObject -> Digest SHA1
-getTreeSha treeObject = hashlazy $ addHeaderForTreeObject treeObject
-
-createFileEntry :: FilePath -> Digest SHA1 -> IO TreeEntry
-createFileEntry filePath sha = do
-    let fileName = last $ split '/' (pack filePath)
-    return $ TreeEntry  fileEntryModeValue (BL.fromStrict fileName) (digestToBL sha)
-
-createDirectoryEntry :: FilePath -> Digest SHA1 -> IO TreeEntry
-createDirectoryEntry filePath sha = do
-    let dirName = last $ split '/' (pack filePath)
-    return $ TreeEntry directoryEntityModeValue  (BL.fromStrict dirName) (digestToBL sha)
-
-fetchDirectoryEntities :: [FilePath] -> IO [TreeEntry]
-fetchDirectoryEntities filePaths = do
-    filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
-
-fetchFileEntities :: [FilePath] -> IO [TreeEntry]
-fetchFileEntities filePaths = do
-    fileEntitysEithers <- filterM isFile filePaths >>=  mapM createFileEntityFromPath
-    let fileEntitys = map (either (error . show) id) fileEntitysEithers
-    return fileEntitys
-
 
 createFileEntityFromPath :: FilePath -> IO (Either IOException TreeEntry)
 createFileEntityFromPath filePath = do
@@ -235,6 +119,17 @@ createDirectoryEntityFromPath filePath = do
     treeObject <- writeTreeInternal filePath
     let hash = getTreeSha treeObject
     createDirectoryEntry filePath hash
+
+fetchDirectoryEntities :: [FilePath] -> IO [TreeEntry]
+fetchDirectoryEntities filePaths = do
+    filterM isDir filePaths >>= mapM createDirectoryEntityFromPath
+
+fetchFileEntities :: [FilePath] -> IO [TreeEntry]
+fetchFileEntities filePaths = do
+    fileEntitysEithers <- filterM isFile filePaths >>=  mapM createFileEntityFromPath
+    let fileEntitys = map (either (error . show) id) fileEntitysEithers
+    return fileEntitys
+
 
 gitignore :: [FilePath]
 gitignore = [".git", "git_test", ".direnv", "tags", ".stack-work"]
@@ -271,19 +166,6 @@ writeTree root = do
 
 -- This is my commit message
 
-data CommitPerson = CommitPerson {
-    personName :: BL.ByteString,
-    personEmail :: BL.ByteString,
-    personTimestamp ::  BL.ByteString
-}
-
-data Commit = Commit {
-    treeSHA :: BL.ByteString,
-    parentSHA ::  BL.ByteString,
-    commitAuthor :: CommitPerson,
-    commitCommitter :: CommitPerson,
-    commitMessage :: BL.ByteString
-}
 
 getTime ::IO BL.ByteString
 getTime = C8.pack . DF.formatTime DF.defaultTimeLocale "%s %z" <$> DC.getCurrentTime
@@ -309,7 +191,6 @@ commitToByteString (Commit treeSha parentSha author committer message) =
         currentCommitter = Builder.stringUtf8 "committer " <> Builder.byteString (BL.toStrict $ commitPersonToByteString committer) <> separator
         commitMessage = Builder.byteString (BL.toStrict message) <> separator
 
--- what the fuck?
 commitTreeInternal :: ByteString -> ByteString -> ByteString -> IO (Either IOException (Digest SHA1))
 commitTreeInternal treeSha parentSha message = do
     let author = createCommitPerson
@@ -323,6 +204,10 @@ commitTree treeSha parentSha message = do
     case result of
         Left err -> putStrLn $ "Error writing commit object: " ++ show err
         Right sha -> print sha
+
+
+-- Clone Respository
+        
 
 -- Main
 main :: IO ()
@@ -343,10 +228,3 @@ parseArgs ["commit-tree", tree_sha, parameterA, parent_sha, parameterB,  message
 parseArgs otherArgs =  void $ putStrLn ("Unknown options" <> show otherArgs)
 
 
--- helper
-
-charToWord8 :: Char -> Word8
-charToWord8 c = fromIntegral (ord c)
-
-c2w :: Char -> Word8
-c2w = fromIntegral . ord
