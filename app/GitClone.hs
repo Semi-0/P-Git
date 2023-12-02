@@ -1,4 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings #-}
 module GitClone where
 import Text.Printf (printf)
 import TCPClient
@@ -15,13 +17,17 @@ import Network.HTTP.Client (
 import Data.Maybe (fromMaybe)
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString as B
-import Prelude 
+import Prelude
 import qualified Prelude as P
 import qualified Data.ByteString.Lazy.Char8 as C8
 import Numeric (readHex)
 import Crypto.Hash (hashlazy, Digest, SHA1, digestFromByteString)
 import Network.URI (parseURI, uriAuthority, uriRegName, uriPort)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Types (renderSimpleQuery)
+import PktLine
+import GHC.Generics (C)
+
 -- OutLine 
 -- Git Protocol: 
 -- used for git client to retrieve the required set of changes 
@@ -51,54 +57,11 @@ import Network.HTTP.Client.TLS (tlsManagerSettings)
 
 -- 2
 -- Transport Protocol:
--- local protocol, SSH, native git protocol, HTTP
-
--- 3
--- Repository data exchange in git happens in multiple phases:
-
--- 3.0 Paccket Line Format
--- git’s protocol payload makes extensive use of the so called packet line (or pkt-line as used in the technical documentation) format.
--- A pkt-line is a variable length binary string with the length encoded in the first four bytes of the pkt-line.
-
--- Create a packet line prefixed with the overall length. Length is 4 byte, hexadecimal, padded with 0
-
--- Git uses the pkt-line format for a few reasons:
-
--- Efficiency: The pkt-line format is a binary format, which is more efficient to process than text-based formats. This is important for a version control system like Git, which needs to handle potentially large amounts of data.
--- Flexibility: The pkt-line format is variable-length, which means it can accommodate data of different sizes. This is useful for Git, which needs to handle different types of data, from small metadata to large file contents.
--- Simplicity: The pkt-line format is relatively simple, with the length of the data encoded in the first four bytes. This makes it easy to parse, which is important for a system like Git that is used by many different types of software.
--- Compatibility: The pkt-line format is compatible with both binary and text data, which is important for Git, which needs to handle both types of data.
-
--- Helper function to convert a number to hexadecimal
-toHex :: Int -> String
-toHex = printf "%x"
-
--- Helper function to pad a string with zeros to make it 4 characters long
-padWithZeros :: String -> String
-padWithZeros str = printf "%04s" str
-
--- Function to compute the hexadecimal length of a string, padded with zeros
-hexLength :: String -> String
-hexLength msg = padWithZeros $ toHex (P.length msg + 4)
-
--- Function to format the packet line
-formatPktLine :: String -> String -> String
-formatPktLine len msg = len ++ msg
-
--- Main function to compute the packet line
-pktLine :: String -> String
-pktLine msg = formatPktLine (hexLength msg) msg
+-- local protocol, SSH, native git protocol, HTTP, git smart protocol
 
 
-data PacketLine = PacketLine {
-    length    :: Int
-  , content   :: String
-} deriving (Eq, Show)
 
-parsePacket :: L.ByteString -> [PacketLine]
-parsePacket = map parsePacketLine . C8.lines
-    where parsePacketLine line = PacketLine (readHexString $ C8.unpack $ L.take 4 line) (C8.unpack $ L.drop 4 line)
-          readHexString = fst . head . readHex
+
 
 -- gonna skip capacity discovery 
 
@@ -132,18 +95,18 @@ parsePacket = map parsePacketLine . C8.lines
 -- de30ca2fe16516eda94d7162e28da2d4022353b9        HEAD
 -- de30ca2fe16516eda94d7162e28da2d4022353b9        refs/heads/master
 
-
-
-
-
-
-
 -- socket 
 gitProtoRequest :: String -> String -> String
 gitProtoRequest host repo = pktLine $ "git-upload-pack /" ++ repo ++ "\0host="++host++"\0"
 
-flushPkt :: String
+flushPkt :: C8.ByteString
 flushPkt = "0000"
+
+delimiterPkt :: C8.ByteString
+delimiterPkt = "0001"
+
+reponseEndPkt :: C8.ByteString
+reponseEndPkt = "0002"
 
 data Remote = Remote {
     getHost         :: String
@@ -152,37 +115,93 @@ data Remote = Remote {
 } deriving (Eq, Show)
 
 
-lsRemote' :: Remote -> IO [PacketLine]
-lsRemote' Remote{..} = withSocketsDo $
-    withConnection getHost (show $ fromMaybe 9418 getPort) $ \sock -> do
-        let payload = gitProtoRequest getHost getRepository
-        send sock payload
-        response <- receive sock
-        send sock flushPkt -- Tell the server to disconnect
-        return $ parsePacket $ L.fromChunks [response]
-
-extractHostAndPort :: String -> (String, Maybe Int)
-extractHostAndPort url = case parseURI url of
-    Just uri -> case uriAuthority uri of
-        Just auth -> (uriRegName auth, readMaybe (drop 1 (uriPort auth)))
-        Nothing -> error "Invalid URL: no authority"
-    Nothing -> error "Invalid URL: could not parse"
-
-readMaybe :: Read a => String -> Maybe a
-readMaybe s = case reads s of
-    [(x, "")] -> Just x
-    _ -> Nothing
-
-
-lsRemote :: String -> IO [PacketLine]
-lsRemote url = lsRemote' $ Remote host port repo
-    where (host, port) = extractHostAndPort url
-          repo = drop 1 $ dropWhile (/= '/') $ drop 1 $ dropWhile (/= '/') url
-
 -- 3.1.1 Capacities:  
 -- In Git, "capabilities" refer to the features and functionalities that a Git server supports.
 -- These capabilities are communicated to the client during the initial connection, and they can include a variety of features,
 --  such as support for certain Git commands, support for specific data transfer protocols, or support for specific types of data compression
+
+-- Discover Capacity:
+
+requestTo :: String -> Request -> IO (Maybe L.ByteString)
+requestTo url request = do
+    manager <- newManager tlsManagerSettings
+    response <- httpLbs request manager
+    return $ Just $ responseBody response
+
+
+discoverCapabilities :: String -> IO (Maybe C8.ByteString)
+discoverCapabilities url = do
+    initReq <- parseUrlThrow  $ url <> "/info/refs"
+    let params = [("service", "git-upload-pack")]
+        headers =
+            [ ("Accept", "application/x-git-upload-pack-advertisement")
+            , ("git-protocol", "version=2")
+            ]
+        request =
+            initReq
+                { queryString = renderSimpleQuery True params
+                , requestHeaders = headers
+
+                }
+    requestTo url request
+
+
+-- After receiving the capability advertisement, a client can then issue a
+-- request to select the command it wants with any particular capabilities
+-- or arguments.  There is then an optional section where the client can
+-- provide any command specific parameters or queries.  Only a single
+-- command can be requested at a time.
+
+--     request = empty-request | command-request
+--     empty-request = flush-pkt
+--     command-request = command
+-- 		      capability-list
+-- 		      delim-pkt
+-- 		      command-args
+-- 		      flush-pkt
+--     command = PKT-LINE("command=" key LF)
+--     command-args = *command-specific-arg
+
+--     command-specific-args are packet line framed arguments defined by
+--     each individual command.
+
+
+lsRefs :: String -> IO (Maybe C8.ByteString)
+lsRefs url = do
+    initReq <-  parseUrlThrow $ "POST " <> url <> "/git-upload-pack"
+    let headers =
+             [("git-protocol", "version=2"), 
+             ("accept", "application/x-git-upload-pack-result"), 
+             ("content-type", "application/x-git-upload-pack-request")]
+        request =
+            initReq { requestHeaders = headers,
+                      requestBody = RequestBodyLBS 
+                       $ encodeBodyToPktLine  ["command=ls-refs",
+                                               "object-format=sha1",
+                                               delimiterPkt,
+                                               "ref-prefix HEAD",
+                                               "ref-prefix refs/heads/",
+                                               "ref-prefix refs/tags/",
+                                               flushPkt]}
+    requestTo url request
+
+encodeBodyToPktLine :: [C8.ByteString] -> L.ByteString
+encodeBodyToPktLine body = L.concat $ map encodeElement body
+
+
+encodeElement :: C8.ByteString -> L.ByteString
+encodeElement element 
+    | element == delimiterPkt = delimiterPkt
+    | element == flushPkt = flushPkt
+    | otherwise = (C8.pack . pktLine . C8.unpack) element
+
+-- this is not right seems it missed a few capabilities need to do more research about it 
+getCapabilities :: Maybe C8.ByteString -> Maybe [C8.ByteString]
+getCapabilities = fmap (\r -> case C8.split '\NUL' r of
+    (_:caps:_) ->  C8.words $ C8.takeWhile (/= '\n') caps
+    _ -> [])
+
+-- 
 
 -- 3.2 Packfile negotiation
 -- After reference and capability discovery, client and server try to determine the minimal packfile required for the client or server to be updated.
@@ -199,58 +218,58 @@ data Ref = Ref {
 } deriving (Show, Eq)
 
 
-receivePack :: Remote -> IO ([Ref], B.ByteString)
-receivePack Remote{..} = withSocketsDo $
-    withConnection getHost (show $ fromMaybe 9418 getPort) $ \sock -> do
-        let payload = gitProtoRequest getHost getRepository
-        send sock payload
-        response <- receive sock
-        let pack    = parsePacket $ L.fromChunks [response]
-            request = createNegotiationRequest ["multi_ack_detailed",
-                        "side-band-64k",
-                        "agent=git/1.8.1"] pack ++ flushPkt ++ pktLine "done\n"
-        send sock request
-        !rawPack <- receiveWithSideband sock (printSideband . C.unpack)
-        return (mapMaybe toRef pack, rawPack)
-    where printSideband str = do
-                        hPutStr stderr str
-                        hFlush stderr
+-- receivePack :: Remote -> IO ([Ref], B.ByteString)
+-- receivePack Remote{..} = withSocketsDo $
+--     withConnection getHost (show $ fromMaybe 9418 getPort) $ \sock -> do
+--         let payload = gitProtoRequest getHost getRepository
+--         send sock payload
+--         response <- receive sock
+--         let pack    = parsePacket $ L.fromChunks [response]
+--             request = createNegotiationRequest ["multi_ack_detailed",
+--                         "side-band-64k",
+--                         "agent=git/1.8.1"] pack ++ flushPkt ++ pktLine "done\n"
+--         send sock request
+--         !rawPack <- receiveWithSideband sock (printSideband . C.unpack)
+--         return (mapMaybe toRef pack, rawPack)
+--     where printSideband str = do
+--                         hPutStr stderr str
+--                         hFlush stderr
 
-createNegotiationRequest :: [String] -> [PacketLine] -> String
-createNegotiationRequest capabilities = concatMap (++ "") . nub . map (pktLine . (++ "\n")) . foldl' (\acc e -> if null acc then first acc e else additional acc e) [] . wants . filter filterPeeledTags . filter filterRefs
-                    where wants              = mapMaybe toObjId
-                          first acc obj      = acc ++ ["want " ++ obj ++ " " ++ unwords capabilities]
-                          additional acc obj = acc ++ ["want " ++ obj]
-                          filterPeeledTags   = not . isSuffixOf "^{}" . C.unpack . ref
-                          filterRefs line    = let r = C.unpack $ ref line
-                                                   predicates = map ($ r) [isPrefixOf "refs/tags/", isPrefixOf "refs/heads/"]
-                                               in or predicates   
+-- createNegotiationRequest :: [String] -> [PacketLine] -> String
+-- createNegotiationRequest capabilities = concatMap (++ "") . nub . map (pktLine . (++ "\n")) . foldl' (\acc e -> if null acc then first acc e else additional acc e) [] . wants . filter filterPeeledTags . filter filterRefs
+--                     where wants              = mapMaybe toObjId
+--                           first acc obj      = acc ++ ["want " ++ obj ++ " " ++ unwords capabilities]
+--                           additional acc obj = acc ++ ["want " ++ obj]
+--                           filterPeeledTags   = not . isSuffixOf "^{}" . C.unpack . ref
+--                           filterRefs line    = let r = C.unpack $ ref line
+--                                                    predicates = map ($ r) [isPrefixOf "refs/tags/", isPrefixOf "refs/heads/"]
+--                                                in or predicates   
 
 
-receiveWithSideband :: Socket -> (B.ByteString -> IO a) -> IO B.ByteString
-receiveWithSideband sock f = recrec mempty
-    where recrec acc = do
-            !maybeLine <- readPacketLine sock
-            let skip = recrec acc
-            case maybeLine of
-                Just "NAK\n" -> skip -- ignore here...
-                Just line -> case B.uncons line of
-                                Just (1, rest)  -> recrec (acc `mappend` rest)
-                                Just (2, rest)  -> f ("remote: " `C.append` rest) >> skip -- FIXME - scan for linebreaks and prepend "remote: " accordingly (see sideband.c)
-                                Just (_, rest)  -> fail $ C.unpack rest
-                                Nothing         -> skip
-                Nothing   -> return acc
+-- receiveWithSideband :: Socket -> (B.ByteString -> IO a) -> IO B.ByteString
+-- receiveWithSideband sock f = recrec mempty
+--     where recrec acc = do
+--             !maybeLine <- readPacketLine sock
+--             let skip = recrec acc
+--             case maybeLine of
+--                 Just "NAK\n" -> skip -- ignore here...
+--                 Just line -> case B.uncons line of
+--                                 Just (1, rest)  -> recrec (acc `mappend` rest)
+--                                 Just (2, rest)  -> f ("remote: " `C.append` rest) >> skip -- FIXME - scan for linebreaks and prepend "remote: " accordingly (see sideband.c)
+--                                 Just (_, rest)  -> fail $ C.unpack rest
+--                                 Nothing         -> skip
+--                 Nothing   -> return acc
 
--- 3.3 Packfile transfer
+-- -- 3.3 Packfile transfer
 
-clone' :: GitRepository -> Remote -> IO ()
-clone' repo remote@Remote{..} = do
-        (refs,packFile) <- receivePack remote
-        let dir = pathForPack repo
-            -- E.g. in native git this is something like .git/objects/pack/tmp_pack_6bo2La
-            tmpPack = dir </> "tmp_pack_incoming"
-        _ <- createDirectoryIfMissing True dir
-        B.writeFile tmpPack packFile
-        _ <- runReaderT (createGitRepositoryFromPackfile tmpPack refs) repo
-        removeFile tmpPack
-        runReaderT checkoutHead repo
+-- clone' :: GitRepository -> Remote -> IO ()
+-- clone' repo remote@Remote{..} = do
+--         (refs,packFile) <- receivePack remote
+--         let dir = pathForPack repo
+--             -- E.g. in native git this is something like .git/objects/pack/tmp_pack_6bo2La
+--             tmpPack = dir </> "tmp_pack_incoming"
+--         _ <- createDirectoryIfMissing True dir
+--         B.writeFile tmpPack packFile
+--         _ <- runReaderT (createGitRepositoryFromPackfile tmpPack refs) repo
+--         removeFile tmpPack
+--         runReaderT checkoutHead repo
