@@ -65,7 +65,50 @@ import GHC.Generics (C)
 
 -- gonna skip capacity discovery 
 
--- 3.1 Reference discovery:
+
+-- 3.0 handle the Request: 
+requestTo :: String -> Request -> IO (Maybe L.ByteString)
+requestTo url request = do
+    manager <- newManager tlsManagerSettings
+    response <- httpLbs request manager
+    return $ Just $ responseBody response
+
+postRequest :: String -> String -> RequestBody -> IO Request 
+postRequest url path requestBody = do 
+    init <- parseUrlThrow $ url <> path 
+    let headers = [("git-protocol", "version=2"),
+                   ("accept", "application/x-git-upload-pack-result"),
+                   ("content-type", "application/x-git-upload-pack-request")]
+        request =  init { method = "POST",
+                          requestHeaders = headers,
+                          requestBody = requestBody}
+    return request  
+
+-- 3.1 Capacities:  
+-- In Git, "capabilities" refer to the features and functionalities that a Git server supports.
+-- These capabilities are communicated to the client during the initial connection, and they can include a variety of features,
+--  such as support for certain Git commands, support for specific data transfer protocols, or support for specific types of data compression
+
+-- Discover Capacity:   
+
+discoverCapabilities :: String -> IO (Maybe C8.ByteString)
+discoverCapabilities url = do
+    initReq <- parseUrlThrow  $ url <> "/info/refs"
+    let params = [("service", "git-upload-pack")]
+        headers =
+            [ ("Accept", "application/x-git-upload-pack-advertisement")
+            , ("git-protocol", "version=2")]
+        request =
+            initReq
+                { queryString = renderSimpleQuery True params
+                , requestHeaders = headers
+
+                }
+    requestTo url request
+
+
+
+-- 3.2 Reference discovery:
 -- client detect what data server has and server provide a list of refs
 -- then client can decide whether has up-to-date or what refs need to update
 -- data format look like this
@@ -95,56 +138,6 @@ import GHC.Generics (C)
 -- de30ca2fe16516eda94d7162e28da2d4022353b9        HEAD
 -- de30ca2fe16516eda94d7162e28da2d4022353b9        refs/heads/master
 
--- socket 
-gitProtoRequest :: String -> String -> String
-gitProtoRequest host repo = pktLine $ "git-upload-pack /" ++ repo ++ "\0host="++host++"\0"
-
-flushPkt :: C8.ByteString
-flushPkt = "0000"
-
-delimiterPkt :: C8.ByteString
-delimiterPkt = "0001"
-
-reponseEndPkt :: C8.ByteString
-reponseEndPkt = "0002"
-
-data Remote = Remote {
-    getHost         :: String
-  , getPort         :: Maybe Int
-  , getRepository   :: String
-} deriving (Eq, Show)
-
-
--- 3.1.1 Capacities:  
--- In Git, "capabilities" refer to the features and functionalities that a Git server supports.
--- These capabilities are communicated to the client during the initial connection, and they can include a variety of features,
---  such as support for certain Git commands, support for specific data transfer protocols, or support for specific types of data compression
-
--- Discover Capacity:
-
-requestTo :: String -> Request -> IO (Maybe L.ByteString)
-requestTo url request = do
-    manager <- newManager tlsManagerSettings
-    response <- httpLbs request manager
-    return $ Just $ responseBody response
-
-
-discoverCapabilities :: String -> IO (Maybe C8.ByteString)
-discoverCapabilities url = do
-    initReq <- parseUrlThrow  $ url <> "/info/refs"
-    let params = [("service", "git-upload-pack")]
-        headers =
-            [ ("Accept", "application/x-git-upload-pack-advertisement")
-            , ("git-protocol", "version=2")
-            ]
-        request =
-            initReq
-                { queryString = renderSimpleQuery True params
-                , requestHeaders = headers
-
-                }
-    requestTo url request
-
 
 -- After receiving the capability advertisement, a client can then issue a
 -- request to select the command it wants with any particular capabilities
@@ -165,45 +158,28 @@ discoverCapabilities url = do
 --     command-specific-args are packet line framed arguments defined by
 --     each individual command.
 
+-- if there is error might because havn't add unborn to the parameter
+             
 
 lsRefs :: String -> IO (Maybe C8.ByteString)
 lsRefs url = do
-    initReq <-  parseUrlThrow $ url <> "/git-upload-pack"
-    let headers =
-             [("git-protocol", "version=2"), 
-             ("accept", "application/x-git-upload-pack-result"), 
-             ("content-type", "application/x-git-upload-pack-request")]
-        request =
-            initReq { method = "POST",
-                      requestHeaders = headers,
-                      requestBody = RequestBodyLBS 
-                       $ encodeBodyToPktLine  ["command=ls-refs",
-                                               "object-format=sha1",
-                                               delimiterPkt,
-                                               "ref-prefix HEAD",
-                                               "ref-prefix refs/heads/",
-                                               "ref-prefix refs/tags/",
-                                               flushPkt]}
+    let requestBody =  RequestBodyLBS $ encodeBodyToPktLine ["command=ls-refs",
+                                                            "object-format=sha1",
+                                                            delimiterPkt,
+                                                            "ref-prefix HEAD",
+                                                            "ref-prefix refs/heads/",
+                                                            "ref-prefix refs/tags/",
+                                                            flushPkt]
+    request <- postRequest url "/git-upload-pack" requestBody                                           
     requestTo url request
 
-encodeBodyToPktLine :: [C8.ByteString] -> L.ByteString
-encodeBodyToPktLine body = L.concat $ map encodeElement body
+-- parse refs: 
+-- the refs 
 
-encodeElement :: C8.ByteString -> L.ByteString
-encodeElement element 
-    | element == delimiterPkt = delimiterPkt
-    | element == flushPkt = flushPkt
-    | otherwise = (C8.pack . pktLine . C8.unpack) element
-
--- this is not right seems it missed a few capabilities need to do more research about it 
-getCapabilities :: Maybe C8.ByteString -> Maybe [C8.ByteString]
-getCapabilities = fmap (\r -> case C8.split '\NUL' r of
-    (_:caps:_) ->  C8.words $ C8.takeWhile (/= '\n') caps
-    _ -> [])
 
 -- 
 
--- 3.2 Packfile negotiation
+-- 3.3 Packfile negotiation
 -- After reference and capability discovery, client and server try to determine the minimal packfile required for the client or server to be updated.
 -- upload-request    =  want-list
 --         		       flush-pkt
@@ -212,64 +188,62 @@ getCapabilities = fmap (\r -> case C8.split '\NUL' r of
 -- first-want        =  PKT-LINE("want" SP obj-id SP capability-list LF)
 -- additional-want   =  PKT-LINE("want" SP obj-id LF)
 
-data Ref = Ref {
-    getObjId        :: C8.ByteString
-  , getRefName      :: C8.ByteString
-} deriving (Show, Eq)
 
+-- `fetch` is the command used to fetch a packfile in v2.  It can be looked
+-- at as a modified version of the v1 fetch where the ref-advertisement is
+-- stripped out (since the `ls-refs` command fills that role) and the
+-- message format is tweaked to eliminate redundancies and permit easy
+-- addition of future extensions.
 
--- receivePack :: Remote -> IO ([Ref], B.ByteString)
--- receivePack Remote{..} = withSocketsDo $
---     withConnection getHost (show $ fromMaybe 9418 getPort) $ \sock -> do
---         let payload = gitProtoRequest getHost getRepository
---         send sock payload
---         response <- receive sock
---         let pack    = parsePacket $ L.fromChunks [response]
---             request = createNegotiationRequest ["multi_ack_detailed",
---                         "side-band-64k",
---                         "agent=git/1.8.1"] pack ++ flushPkt ++ pktLine "done\n"
---         send sock request
---         !rawPack <- receiveWithSideband sock (printSideband . C.unpack)
---         return (mapMaybe toRef pack, rawPack)
---     where printSideband str = do
---                         hPutStr stderr str
---                         hFlush stderr
+-- Additional features not supported in the base command will be advertised
+-- as the value of the command in the capability advertisement in the form
+-- of a space separated list of features: "<command>=<feature 1> <feature 2>"
 
--- createNegotiationRequest :: [String] -> [PacketLine] -> String
--- createNegotiationRequest capabilities = concatMap (++ "") . nub . map (pktLine . (++ "\n")) . foldl' (\acc e -> if null acc then first acc e else additional acc e) [] . wants . filter filterPeeledTags . filter filterRefs
---                     where wants              = mapMaybe toObjId
---                           first acc obj      = acc ++ ["want " ++ obj ++ " " ++ unwords capabilities]
---                           additional acc obj = acc ++ ["want " ++ obj]
---                           filterPeeledTags   = not . isSuffixOf "^{}" . C.unpack . ref
---                           filterRefs line    = let r = C.unpack $ ref line
---                                                    predicates = map ($ r) [isPrefixOf "refs/tags/", isPrefixOf "refs/heads/"]
---                                                in or predicates   
+-- A `fetch` request can take the following arguments:
 
+--     want <oid>
+-- 	Indicates to the server an object which the client wants to
+-- 	retrieve.  Wants can be anything and are not limited to
+-- 	advertised objects.
 
--- receiveWithSideband :: Socket -> (B.ByteString -> IO a) -> IO B.ByteString
--- receiveWithSideband sock f = recrec mempty
---     where recrec acc = do
---             !maybeLine <- readPacketLine sock
---             let skip = recrec acc
---             case maybeLine of
---                 Just "NAK\n" -> skip -- ignore here...
---                 Just line -> case B.uncons line of
---                                 Just (1, rest)  -> recrec (acc `mappend` rest)
---                                 Just (2, rest)  -> f ("remote: " `C.append` rest) >> skip -- FIXME - scan for linebreaks and prepend "remote: " accordingly (see sideband.c)
---                                 Just (_, rest)  -> fail $ C.unpack rest
---                                 Nothing         -> skip
---                 Nothing   -> return acc
+--     have <oid>
+-- 	Indicates to the server an object which the client has locally.
+-- 	This allows the server to make a packfile which only contains
+-- 	the objects that the client needs. Multiple 'have' lines can be
+-- 	supplied.
+
+--     done
+-- 	Indicates to the server that negotiation should terminate (or
+-- 	not even begin if performing a clone) and that the server should
+-- 	use the information supplied in the request to construct the
+-- 	packfile.
+
+fetch :: String -> [C8.ByteString] -> IO (Maybe C8.ByteString)
+fetch url objs = do
+    let requestBody = RequestBodyLBS
+                    $ encodeBodyToPktLine  ( [C8.pack "command=fetch"] ++ 
+                                            ["object-format=sha1"] ++
+                                            [delimiterPkt] ++ 
+                                            wantObjs objs ++ 
+                                            [C8.pack "done"] ++ 
+                                            [flushPkt])
+    request <-  postRequest url "/git-upload-pack" requestBody                                        
+    requestTo url request
+    where wantObjs :: [C8.ByteString] -> [C8.ByteString]
+          wantObjs = map (\obj -> C8.pack  "want " <> obj <> C8.pack "\n")
 
 -- -- 3.3 Packfile transfer
 
--- clone' :: GitRepository -> Remote -> IO ()
--- clone' repo remote@Remote{..} = do
---         (refs,packFile) <- receivePack remote
---         let dir = pathForPack repo
---             -- E.g. in native git this is something like .git/objects/pack/tmp_pack_6bo2La
---             tmpPack = dir </> "tmp_pack_incoming"
---         _ <- createDirectoryIfMissing True dir
---         B.writeFile tmpPack packFile
---         _ <- runReaderT (createGitRepositoryFromPackfile tmpPack refs) repo
---         removeFile tmpPack
---         runReaderT checkoutHead repo
+-- A 12 byte pack file header with:
+-- a 4-byte magic byte with the value 'P' 'A' 'C' 'K' (decimal 1346454347)
+-- a 4 byte pack file version
+-- a 4 byte number of objects in the packfile
+-- n objects with
+-- a variable length object header that contains the type of object 
+-- (see below) and the length of the inflated/uncompressed data that follows
+-- only for deltified objects: the 20 byte base object name 
+-- (for objects of type OBJ_REF_DELTA) or a relative (negative)
+-- offset from the delta object’s position in the pack for objects of type 
+-- OBJ_OFS_DELTA - see below).
+-- zlib deflated/compressed object data
+-- A 20 byte SHA1 checksum of all of the above as trailer
