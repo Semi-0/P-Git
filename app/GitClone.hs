@@ -168,13 +168,14 @@ discoverCapabilities url = do
 
 lsRefs :: String -> IO (Maybe C8.ByteString)
 lsRefs url = do
-    initReq <-  parseUrlThrow $ "POST " <> url <> "/git-upload-pack"
+    initReq <-  parseUrlThrow $ url <> "/git-upload-pack"
     let headers =
              [("git-protocol", "version=2"), 
              ("accept", "application/x-git-upload-pack-result"), 
              ("content-type", "application/x-git-upload-pack-request")]
         request =
-            initReq { requestHeaders = headers,
+            initReq { method = "POST",
+                      requestHeaders = headers,
                       requestBody = RequestBodyLBS 
                        $ encodeBodyToPktLine  ["command=ls-refs",
                                                "object-format=sha1",
@@ -187,7 +188,6 @@ lsRefs url = do
 
 encodeBodyToPktLine :: [C8.ByteString] -> L.ByteString
 encodeBodyToPktLine body = L.concat $ map encodeElement body
-
 
 encodeElement :: C8.ByteString -> L.ByteString
 encodeElement element 
