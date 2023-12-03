@@ -2,6 +2,10 @@ module Parser where
 import Text.ParserCombinators.Parsec hiding (spaces)
 import Object
 import qualified Data.ByteString.Lazy.Char8 as C8
+import qualified Data.ByteString as BL
+import Data.ByteArray.Parse (anyByte)
+
+
 
 parseTreeObject :: Parser TreeObject
 parseTreeObject = do
@@ -22,4 +26,3 @@ parseTreeEntry = do
     sha <- count 20 anyChar
     return $ TreeEntry (C8.pack mode) (C8.pack name) (C8.pack sha)
 
-    
