@@ -27,7 +27,6 @@ import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (renderSimpleQuery)
 import PktLine
 import GHC.Generics (C)
-import Text.Parsec
 import Control.Monad (forM, forM_, unless, when)
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.Word (Word8)
@@ -109,9 +108,7 @@ discoverCapabilities url = do
         request =
             initReq
                 { queryString = renderSimpleQuery True params
-                , requestHeaders = headers
-
-                }
+                , requestHeaders = headers}
     requestTo url request
 
 
@@ -229,11 +226,12 @@ lsRefs url = do
 fetch :: String -> [C8.ByteString] -> IO (Maybe C8.ByteString)
 fetch url objs = do
     let requestBody = RequestBodyLBS
-                    $ encodeBodyToPktLine  ( [C8.pack "command=fetch"] ++
+                    $ encodeBodyToPktLine  (["command=fetch", 
+                                            "object-format=sha1"] ++
                                             ["object-format=sha1"] ++
                                             [delimiterPkt] ++
                                             wantObjs objs ++
-                                            [C8.pack "done"] ++
+                                            ["done"] ++
                                             [flushPkt])
     request <-  postRequest url "/git-upload-pack" requestBody
     requestTo url request
@@ -314,15 +312,28 @@ data PackObjType
     deriving (Show, Eq)
 
 
--- packFileParser :: Parser Packfile
--- packFileParser = do
---     magicByte <-  Data.Attoparsec.ByteString.take 4
---     unless (magicByte == "PACK") $ fail "Invalid magic byte"
---     version <-  parseBigEndianInt
---     unless (version == 2) $ fail "Invalid version"
---     numObjects <- parseBigEndianInt
---     -- objects <- many parseObject
---     return $ Packfile magicByte version numObjects objects
+packFileParser :: Parser Packfile
+packFileParser = do
+    magicByte <-  Data.Attoparsec.ByteString.take 4
+    unless (magicByte == "PACK") $ fail "Invalid magic byte"
+    version <-  parseBigEndianInt
+    unless (version == 2) $ fail "Invalid version"
+    numObjects <- parseBigEndianInt
+    objects <- count numObjects parseObject
+    return $ Packfile magicByte version numObjects objects
+
+
+parseObject :: Parser Object 
+parseObject = do 
+    header <- objHeaderParser
+    obj <- case objType header of
+        OBJ_COMMIT -> parseCommit header
+        OBJ_TREE -> parseTree header
+        OBJ_BLOB -> parseBlob header
+        OBJ_TAG -> parseTag header
+        OBJ_REF_DELTA -> parseRefDelta header
+        OBJ_OFS_DELTA -> fail "UnSupported Object Type" <> show OBJ_OFS_DELTA
+        UNKNOWN_OBJ_TYPE -> fail "Unknown object type" 
 
 
 
