@@ -7,6 +7,7 @@ import System.Directory (createDirectoryIfMissing, listDirectory, doesFileExist,
 import System.FilePath ((</>))
 import Codec.Compression.Zlib (decompress, compress)
 import System.FilePath (takeDirectory)
+import Data.Word (Word8)
 -- -- Basic IO
 
 readObject :: String -> IO (Either E.IOException BL.ByteString)
@@ -30,8 +31,11 @@ writeObjectFile  content = do
 
 -- -- Helper functions
 
-dropUnrelevant :: BL.ByteString -> BL.ByteString
-dropUnrelevant = BL.drop 8
+dropIrrelevant :: BL.ByteString -> BL.ByteString
+dropIrrelevant bs =
+    case BL.elemIndex (0 :: Word8) bs of
+        Just idx -> BL.drop (idx + 1) bs
+        Nothing  -> bs
 
 appendPath :: String -> String
 appendPath sha = ".git" </> "objects" </> dir </> file

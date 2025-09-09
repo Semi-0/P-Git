@@ -393,7 +393,7 @@ objHeaderParser = do
 -- For example, if the first byte is 0x70 (01110000 in binary), 
 -- the object type is 0x07 (00000111 in binary).
 getObjTypeInt :: Int -> Int
-getObjTypeInt firstByte = shiftR firstByte 4 .&. 0x70 
+getObjTypeInt firstByte = (shiftR firstByte 4) .&. 0x07
 
 -- This function extracts the size of the object from the first byte.
 -- For example, if the first byte is 0x0f (00001111 in binary), 

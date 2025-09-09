@@ -5,7 +5,6 @@ import Crypto.Hash (hashlazy, Digest, SHA1, digestFromByteString)
 import qualified Data.ByteString.Lazy.Char8 as C8
 import System.Directory (doesFileExist, doesDirectoryExist)
 import Control.Exception (IOException, try)
-import Crypto.Hash (hashlazy, Digest, SHA1, digestFromByteString)
 import qualified Crypto.Hash as H
 import qualified Data.ByteArray  as BA
 import Control.Monad (void, filterM, unless)

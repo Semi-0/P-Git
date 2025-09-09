@@ -8,7 +8,6 @@ import Prelude
 import Text.Printf (printf)
 import qualified Prelude as P
 import qualified Data.ByteString.Lazy.Char8 as C8
-import qualified Data.ByteString.Lazy.Char8 as C8
 import Numeric (readHex)
 
 -- 3

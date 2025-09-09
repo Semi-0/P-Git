@@ -1,3 +1,4 @@
 .stack-work/
 hs-git-clone.cabal
 *~
+.DS_Store

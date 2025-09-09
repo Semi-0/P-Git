@@ -13,7 +13,7 @@ import Text.ParserCombinators.Parsec hiding (spaces)
 import Crypto.Hash (hashlazy, Digest, SHA1, digestFromByteString)
 import Control.Exception (IOException, try)
 import Control.Monad (void, filterM, unless)
-import System.Directory (createDirectoryIfMissing)
+-- removed duplicate createDirectoryIfMissing import
 import System.Environment
 import System.FilePath ((</>))
 import System.FilePath (takeDirectory)
@@ -26,7 +26,7 @@ import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy  as BL
 import qualified Data.ByteString as B
 import qualified Crypto.Hash as H
-import System.Directory (doesFileExist, doesDirectoryExist)
+-- removed duplicate doesFileExist/doesDirectoryExist import
 import Data.ByteString.Char8 (pack, unpack, split)
 
 import Data.Word (Word8)
@@ -68,7 +68,7 @@ catFile parameters shardName
     | parameters == "-p" = do
         result <- readObject shardName
         case result of
-            Right content -> BL.putStr $ dropUnrelevant content
+            Right content -> BL.putStr $ dropIrrelevant content
             Left e -> putStrLn $ "Error: " ++ show e
     | otherwise = putStrLn "Unknown Parameters for CatFile"
 
