@@ -39,6 +39,12 @@ executables:
   hs-git-clone-exe:
     main:                Main.hs
     source-dirs:         app
+    other-modules:
+      - BasicIO
+      - Object
+      - Parser
+      - PktLine
+      - TCPClient
     ghc-options:
     - -threaded
     - -rtsopts

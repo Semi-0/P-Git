@@ -33,7 +33,7 @@ import Data.Word (Word8)
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
 import Control.Arrow (Arrow(first))
-import DecompressParser
+-- import DecompressParser -- placeholder; excluded from build until implemented
 
 -- OutLine 
 -- Git Protocol: 

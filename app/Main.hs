@@ -8,34 +8,17 @@ import Object
 import BasicIO
 import Parser
 import System.Directory (createDirectoryIfMissing, listDirectory, doesFileExist, doesDirectoryExist)
-import System.IO (IOMode (WriteMode), hPutStrLn, withFile, writeFile)
+import System.IO (IOMode (WriteMode), hPutStrLn, withFile)
 import Text.ParserCombinators.Parsec hiding (spaces)
-import Crypto.Hash (hashlazy, Digest, SHA1, digestFromByteString)
-import Control.Exception (IOException, try)
+import Crypto.Hash (Digest, SHA1)
+import Control.Exception (IOException)
 import Control.Monad (void, filterM, unless)
--- removed duplicate createDirectoryIfMissing import
-import System.Environment
+import System.Environment (getArgs)
 import System.FilePath ((</>))
-import System.FilePath (takeDirectory)
-import Control.Monad (guard)
-import qualified Data.ByteArray  as BA
 import qualified Data.ByteString.Lazy.Char8 as C8
-
-import Codec.Compression.Zlib (decompress, compress)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy  as BL
-import qualified Data.ByteString as B
-import qualified Crypto.Hash as H
--- removed duplicate doesFileExist/doesDirectoryExist import
-import Data.ByteString.Char8 (pack, unpack, split)
-
-import Data.Word (Word8)
-import Data.Char (ord)
-
-import Control.Monad.RWS (MonadState(put, get))
-import Data.Char (chr)
-import GHC.IO.Device (RawIO(write))
-import qualified Control.Exception as E
+import Data.ByteString.Char8 (pack, unpack)
 import Data.List (sort)
 import Data.Maybe (catMaybes)
 import Control.Concurrent.Async (mapConcurrently)
